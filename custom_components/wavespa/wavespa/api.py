@@ -26,7 +26,7 @@ _HEADERS = {
     "Content-type": "application/json; charset=UTF-8",
     "X-Gizwits-Application-Id": "78a879318939402b9c70819d918ef8ed",
     "User-Agent": "okhttp/5.0.0-alpha.3",
-    "Connection": "Keep-Alive"
+    "Connection": "Keep-Alive",
 }
 _TIMEOUT = 10
 
@@ -205,15 +205,31 @@ class WavespaApi:
 
             _LOGGER.debug("New data received for device %s", did)
             device_attrs = latest_data["attr"]
+
+            # Preserve the previous time_filter value if it exists
+            previous_time_filter = None
+            if cached_state is not None:
+                previous_time_filter = cached_state.time_filter
+
             self._state_cache[did] = WavespaDeviceStatus(
-                latest_data["updated_at"],
-                device_attrs,
-                device_info
+                latest_data["updated_at"], device_attrs, device_info
             )
 
             # Update the cached state with the latest data
-            if (device_attrs["Time_filter"]) is not None:
+            # If Time_filter is in the response, use it; otherwise preserve the previous value
+            if (
+                "Time_filter" in device_attrs
+                and device_attrs["Time_filter"] is not None
+            ):
                 self._state_cache[did].time_filter = device_attrs["Time_filter"]
+            elif previous_time_filter is not None:
+                # Preserve the previous value if Time_filter is not in this API response
+                self._state_cache[did].time_filter = previous_time_filter
+                _LOGGER.debug(
+                    "Time_filter not in API response for device %s, preserving previous value: %d",
+                    did,
+                    previous_time_filter,
+                )
 
             attr_dump = json.dumps(device_attrs)
 
