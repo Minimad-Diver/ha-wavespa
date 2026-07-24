@@ -65,10 +65,10 @@ class WavespaUpdateCoordinator(DataUpdateCoordinator[WavespaApiResults]):
 
         device_info = self.api.devices.get(device_id)
         if device_info is None:
-            _LOGGER.warning("WebSocket update for unknown device %s", device_id)
+            _LOGGER.warning(
+                "Received WebSocket update for unrecognised device %s", device_id
+            )
             return
-
-        previous_time_filter = device_info.time_filter
 
         # Update state cache with real-time data
         self.api._state_cache[device_id] = WavespaDeviceStatus(
@@ -77,10 +77,12 @@ class WavespaUpdateCoordinator(DataUpdateCoordinator[WavespaApiResults]):
             _device=device_info,
         )
 
+        # If this update includes a fresh Time_filter value, store it on the
+        # device so it's reflected immediately. Otherwise the existing
+        # value on device_info (carried forward by refresh_bindings) is
+        # used as-is via the WavespaDeviceStatus.time_filter property.
         if "Time_filter" in attrs and attrs["Time_filter"] is not None:
             self.api._state_cache[device_id].time_filter = attrs["Time_filter"]
-        elif previous_time_filter is not None:
-            self.api._state_cache[device_id].time_filter = previous_time_filter
 
         # Track last WebSocket update time for this device
         self._ws_last_update[device_id] = time()

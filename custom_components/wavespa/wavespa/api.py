@@ -147,9 +147,26 @@ class WavespaApi:
 
     async def refresh_bindings(self) -> None:
         """Refresh and store the list of devices available in the account."""
-        self.devices = {
+        previous_devices = self.devices
+
+        new_devices = {
             device.device_id: device for device in await self._get_devices()
         }
+
+        # `time_filter` is tracked locally (it isn't part of the bindings API
+        # response) and lives on the WavespaDevice object itself. Since this
+        # method rebuilds that object from scratch every time it's called
+        # (once per poll cycle), carry the previous value forward onto the
+        # new object before it replaces the old one. This closes a race
+        # condition where a WebSocket update landing between this refresh
+        # and the next fetch_data() call would otherwise see a blank
+        # (None) time_filter and briefly report the filter sensor as
+        # unknown.
+        for did, device in new_devices.items():
+            if (previous_device := previous_devices.get(did)) is not None:
+                device.time_filter = previous_device.time_filter
+
+        self.devices = new_devices
 
     async def _get_devices(self) -> list[WavespaDevice]:
         """Get the list of devices available in the account."""
