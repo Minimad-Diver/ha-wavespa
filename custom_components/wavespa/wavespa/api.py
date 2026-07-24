@@ -11,6 +11,7 @@ from typing import Any
 
 from aiohttp import ClientResponse, ClientSession
 
+from ..const import GIZWITS_APP_ID
 from .model import (
     WavespaDevice,
     WavespaDeviceStatus,
@@ -24,7 +25,7 @@ from .model import (
 _LOGGER = getLogger(__name__)
 _HEADERS = {
     "Content-type": "application/json; charset=UTF-8",
-    "X-Gizwits-Application-Id": "78a879318939402b9c70819d918ef8ed",
+    "X-Gizwits-Application-Id": GIZWITS_APP_ID,
     "User-Agent": "okhttp/5.0.0-alpha.3",
     "Connection": "Keep-Alive",
 }
@@ -168,6 +169,8 @@ class WavespaApi:
                 raw["wifi_soft_version"],
                 raw["wifi_hard_version"],
                 raw["is_online"],
+                ws_host=raw.get("host", "m2m.gizwits.com"),
+                ws_port=raw.get("wss_port", 8880),
             )
             for raw in api_data["devices"]
         ]
