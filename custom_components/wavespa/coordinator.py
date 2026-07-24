@@ -10,7 +10,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .wavespa.api import WavespaApi, WavespaApiResults
-from .bestway.model import WavespaDeviceStatus
+from .wavespa.model import WavespaDeviceStatus
 
 _LOGGER = getLogger(__name__)
 
@@ -64,7 +64,7 @@ class WavespaUpdateCoordinator(DataUpdateCoordinator[WavespaApiResults]):
         )
 
         # Update state cache with real-time data
-        self.api._state_cache[device_id] = BestwayDeviceStatus(
+        self.api._state_cache[device_id] = WavespaDeviceStatus(
             timestamp=int(time()),
             attrs=attrs,
         )
@@ -73,7 +73,7 @@ class WavespaUpdateCoordinator(DataUpdateCoordinator[WavespaApiResults]):
         self._ws_last_update[device_id] = time()
 
         # Trigger immediate entity updates
-        self.async_set_updated_data(BestwayApiResults(self.api._state_cache))
+        self.async_set_updated_data(WavespaApiResults(self.api._state_cache))
 
     def handle_websocket_disconnect(self) -> None:
         """Handle WebSocket disconnection.

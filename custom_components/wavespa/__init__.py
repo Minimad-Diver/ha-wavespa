@@ -12,7 +12,7 @@ from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .wavespa.api import WavespaApi
-from .bestway.websocket import GizwitsWebSocket
+from .wavespa.websocket import GizwitsWebSocket
 from .const import (
     CONF_API_ROOT,
     CONF_API_ROOT_EU,
@@ -141,10 +141,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unload_ok:
        coordinator = hass.data[DOMAIN].pop(entry.entry_id)
 
-        # Cleanup WebSocket connection
-        if hasattr(coordinator, "websocket") and coordinator.websocket:
-            await coordinator.websocket.disconnect()
-            _LOGGER.info("WebSocket client disconnected")
+    # Cleanup WebSocket connection
+    if hasattr(coordinator, "websocket") and coordinator.websocket:
+        await coordinator.websocket.disconnect()
+        _LOGGER.info("WebSocket client disconnected")
 
     return unload_ok
 
