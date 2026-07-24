@@ -6,8 +6,8 @@
   "dependencies": [],
   "documentation": "https://github.com/GraemeDBlue/ha-wavespa",
   "integration_type": "device",
-  "iot_class": "cloud_polling",
+  "iot_class": "cloud_push",
   "issue_tracker": "https://github.com/GraemeDBlue/ha-wavespa/issues",
-  "requirements": [],
+  "requirements": ["websockets"],
   "version": "1.4.0"
 }
