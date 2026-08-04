@@ -10,8 +10,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from custom_components.wavespa.wavespa.api import WavespaApi
-
+from .wavespa.api import WavespaApi
 from . import WavespaUpdateCoordinator
 from .wavespa.model import (
     AIRJET_V01_BUBBLES_MAP,

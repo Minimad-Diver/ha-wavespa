@@ -24,7 +24,7 @@ class WavespaUpdateCoordinator(DataUpdateCoordinator[WavespaApiResults]):
         super().__init__(
             hass,
             _LOGGER,
-			config_entry=config_entry,
+            config_entry=config_entry,
             name="Wavespa API",
             update_interval=timedelta(seconds=30),
         )

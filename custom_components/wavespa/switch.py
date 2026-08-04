@@ -99,6 +99,12 @@ async def async_setup_entry(
                         device_id,
                         _AIRJET_SPA_BUBBLES_SWITCH,
                     ),
+                    WavespaSwitch(
+                        coordinator,
+                        config_entry,
+                        device_id,
+                        _AIRJET_SPA_LOCK_SWITCH,
+                    ),
                 ]
             )
 
