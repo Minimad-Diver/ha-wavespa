@@ -6,6 +6,7 @@ from logging import getLogger
 from time import time
 from typing import Any
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
@@ -18,11 +19,12 @@ _LOGGER = getLogger(__name__)
 class WavespaUpdateCoordinator(DataUpdateCoordinator[WavespaApiResults]):
     """Update coordinator that polls the device status for all devices in an account."""
 
-    def __init__(self, hass: HomeAssistant, api: WavespaApi) -> None:
+    def __init__(self, hass: HomeAssistant, config_entry: ConfigEntry, api: WavespaApi) -> None:
         """Initialize my coordinator."""
         super().__init__(
             hass,
             _LOGGER,
+			config_entry=config_entry,
             name="Wavespa API",
             update_interval=timedelta(seconds=30),
         )

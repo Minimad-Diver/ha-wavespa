@@ -85,7 +85,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
 
     api = WavespaApi(session, user_token, api_root)
-    coordinator = WavespaUpdateCoordinator(hass, api)
+    coordinator = WavespaUpdateCoordinator(hass, entry, api)
     await coordinator.async_config_entry_first_refresh()
 
     # Initialize WebSocket for real-time updates
