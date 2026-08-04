@@ -17,9 +17,6 @@ from .model import (
     WavespaDeviceStatus,
     WavespaDeviceType,
     WavespaUserToken,
-    BubblesLevel,
-    HydrojetFilter,
-    HydrojetHeat,
 )
 
 _LOGGER = getLogger(__name__)
@@ -337,7 +334,7 @@ class WavespaApi:
 
         api_value = 1 if locked else 0
         _LOGGER.debug("Setting lock state to %s", "ON" if locked else "OFF")
-        await self._do_control_post(device_id, ocked=api_value)
+        await self._do_control_post(device_id, locked=api_value)
         cached_state.timestamp = int(time())
         cached_state.attrs["locked"] = api_value
 

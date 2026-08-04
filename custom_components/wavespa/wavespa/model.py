@@ -121,7 +121,7 @@ HYDROJET_BUBBLES_MAP = BubblesMapping(BV(0), BV(40), BV(100))
 
 @dataclass
 class WavespaDeviceStatus:
-    """A snapshot of the status of a spa (i.e. Lay-Z-Spa) device."""
+    """A snapshot of the status of a spa device."""
 
     timestamp: int
     attrs: dict[str, Any]
