@@ -138,6 +138,11 @@ class WavespaSwitch(WavespaEntity, SwitchEntity):
         self._optimistic_state: bool | None = None
         self._optimistic_state_set_at: float | None = None
 
+    def _set_optimistic(self, value: bool) -> None:
+        """Set the optimistic value and stamp it for the timeout check."""
+        self._optimistic_state = value
+        self._optimistic_state_set_at = monotonic()
+
     @property
     def is_on(self) -> bool | None:
         """Return true if the switch is on."""
@@ -165,8 +170,14 @@ class WavespaSwitch(WavespaEntity, SwitchEntity):
         optimistic value after _OPTIMISTIC_TIMEOUT_SECONDS, falling back to
         whatever the real device data says.
         """
-        if self._optimistic_state is not None and (status := self.status):
-            confirmed = self.entity_description.value_fn(status) == self._optimistic_state
+        if self._optimistic_state is not None and self.status is not None:
+            try:
+                actual = self.entity_description.value_fn(self.status)
+            except (KeyError, TypeError):
+                # A partial/malformed status shouldn't crash the update -
+                # just treat it as unconfirmed and let the timeout decide.
+                actual = None
+            confirmed = actual == self._optimistic_state
             timed_out = (
                 self._optimistic_state_set_at is not None
                 and monotonic() - self._optimistic_state_set_at
@@ -180,16 +191,14 @@ class WavespaSwitch(WavespaEntity, SwitchEntity):
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the switch on."""
-        self._optimistic_state = True
-        self._optimistic_state_set_at = monotonic()
+        self._set_optimistic(True)
         self.async_write_ha_state()
         await self.entity_description.turn_on_fn(self.coordinator.api, self.device_id)
         await self.coordinator.async_request_refresh()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the switch off."""
-        self._optimistic_state = False
-        self._optimistic_state_set_at = monotonic()
+        self._set_optimistic(False)
         self.async_write_ha_state()
         await self.entity_description.turn_off_fn(self.coordinator.api, self.device_id)
         await self.coordinator.async_request_refresh()
