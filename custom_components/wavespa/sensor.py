@@ -5,7 +5,13 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from homeassistant.components.sensor import SensorEntity, SensorEntityDescription
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorEntityDescription,
+    SensorStateClass,
+)
+from homeassistant.const import UnitOfPower
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
@@ -17,6 +23,9 @@ from .const import DOMAIN, Icon
 from .entity import WavespaEntity
 from .wavespa.model import WavespaDevice, WavespaDeviceType
 
+ESTIMATED_HEATER_WATTS = 1800
+ESTIMATED_BUBBLES_WATTS = 600
+ESTIMATED_FILTER_WATTS = 50
 
 @dataclass
 class DeviceSensorDescription:
@@ -42,6 +51,15 @@ async def async_setup_entry(
         ]:
 
             name_prefix = "WaveSpa"
+
+        entities.append(
+                EstimatedPowerSensor(
+                    coordinator,
+                    config_entry,
+                    device_id,
+                    name=f"{name_prefix} Estimated Power",
+                )
+            )
 
         entities.extend(
             [
@@ -160,3 +178,85 @@ class DeviceSensor(WavespaEntity, SensorEntity):
         if (device := self.wavespa_device) is not None:
             return self.sensor_description.value_fn(device)
         return None
+
+class EstimatedPowerSensor(WavespaEntity, SensorEntity):
+    """Estimated instantaneous power consumption for a spa.
+
+    This is not measured power. It is a best-effort estimate based on
+    reported spa state.
+    """
+
+    _attr_device_class = SensorDeviceClass.POWER
+    _attr_native_unit_of_measurement = UnitOfPower.WATT
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:flash"
+
+    def __init__(
+        self,
+        coordinator: WavespaUpdateCoordinator,
+        config_entry: ConfigEntry,
+        device_id: str,
+        name: str,
+    ) -> None:
+        """Initialize the estimated power sensor."""
+        super().__init__(coordinator, config_entry, device_id)
+        self._attr_name = name
+        self._attr_unique_id = f"{device_id}_estimated_power"
+
+    @property
+    def native_value(self) -> int | None:
+        """Return estimated current power draw in watts."""
+        if self.status is None:
+            return None
+
+        attrs = self.status.attrs
+        watts = 0
+
+        # Heater:
+        heater_active = False
+
+        if "heat_power" in attrs:
+            heater_active = bool(attrs.get("heat_power")) and not bool(
+                attrs.get("heat_temp_reach")
+            )
+        elif "heat" in attrs:
+            heater_active = (
+                int(attrs.get("heat") or 0) > 0 and int(attrs.get("heat") or 0) != 4
+            )
+
+        if heater_active:
+            watts += ESTIMATED_HEATER_WATTS
+
+        # Filter:
+        filter_active = False
+
+        if "filter_power" in attrs:
+            filter_active = bool(attrs.get("filter_power"))
+        elif "filter" in attrs:
+            filter_active = int(attrs.get("filter") or 0) == 2
+
+        if filter_active:
+            watts += ESTIMATED_FILTER_WATTS
+
+        # Bubbles:
+        bubbles_active = False
+
+        if "wave_power" in attrs:
+            bubbles_active = bool(attrs.get("wave_power"))
+        elif "wave" in attrs:
+            bubbles_active = int(attrs.get("wave") or 0) > 0
+
+        if bubbles_active:
+            watts += ESTIMATED_BUBBLES_WATTS
+
+        return watts
+
+    @property
+    def extra_state_attributes(self) -> dict[str, int | str]:
+        """Return the assumptions used by this estimated sensor."""
+        return {
+            "calculation": "estimated",
+            "heater_watts": ESTIMATED_HEATER_WATTS,
+            "bubbles_watts": ESTIMATED_BUBBLES_WATTS,
+            "filter_watts": ESTIMATED_FILTER_WATTS,
+        }
