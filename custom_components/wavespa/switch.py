@@ -19,19 +19,13 @@ from .const import DOMAIN, Icon
 from .entity import WavespaEntity
 
 
-@dataclass(frozen=True)
-class SwitchFunctionsMixin:
-    """Functions for spa devices."""
+@dataclass(frozen=True, kw_only=True)
+class WavespaSwitchEntityDescription(SwitchEntityDescription):
+    """Entity description for switches."""
 
     value_fn: Callable[[WavespaDeviceStatus], bool]
     turn_on_fn: Callable[[WavespaApi, str], Awaitable[None]]
     turn_off_fn: Callable[[WavespaApi, str], Awaitable[None]]
-
-
-@dataclass(frozen=True)
-class WavespaSwitchEntityDescription(SwitchEntityDescription, SwitchFunctionsMixin):
-    """Entity description for wavespa spa switches."""
-
 
 _AIRJET_SPA_POWER_SWITCH = WavespaSwitchEntityDescription(
     key="Heater",
@@ -115,6 +109,7 @@ class WavespaSwitch(WavespaEntity, SwitchEntity):
     """Wavespa switch entity."""
 
     entity_description: WavespaSwitchEntityDescription
+    _attr_assumed_state = True
 
     def __init__(
         self,
@@ -127,21 +122,33 @@ class WavespaSwitch(WavespaEntity, SwitchEntity):
         super().__init__(coordinator, config_entry, device_id)
         self.entity_description = description
         self._attr_unique_id = f"{device_id}_{description.key}"
+        self._optimistic_state: bool | None = None
 
     @property
     def is_on(self) -> bool | None:
         """Return true if the switch is on."""
+        if self._optimistic_state is not None:
+            return self._optimistic_state
         if status := self.status:
             return self.entity_description.value_fn(status)
 
         return None
 
+    def _handle_coordinator_update(self) -> None:
+        """Clear optimistic state when real data arrives."""
+        self._optimistic_state = None
+        super()._handle_coordinator_update()    
+
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the switch on."""
+        self._optimistic_state = True
+        self.async_write_ha_state()
         await self.entity_description.turn_on_fn(self.coordinator.api, self.device_id)
-        await self.coordinator.async_refresh()
+        await self.coordinator.async_request_refresh()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the switch off."""
+        self._optimistic_state = False
+        self.async_write_ha_state()
         await self.entity_description.turn_off_fn(self.coordinator.api, self.device_id)
-        await self.coordinator.async_refresh()
+        await self.coordinator.async_request_refresh()

@@ -29,17 +29,13 @@ _BUBBLES_OPTIONS = {
 }
 
 
-@dataclass(frozen=True)
-class BubblesRequiredKeys:
-    """Mixin for required keys."""
+@dataclass(frozen=True, kw_only=True)
+class BubblesSelectEntityDescription(SelectEntityDescription):
+    """Describes bubbles selection."""
 
     set_fn: Callable[[WavespaApi, str, BubblesLevel], Awaitable[None]]
     get_fn: Callable[[int], BubblesLevel]
 
-
-@dataclass(frozen=True)
-class BubblesSelectEntityDescription(SelectEntityDescription, BubblesRequiredKeys):
-    """Describes bubbles selection."""
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -88,3 +84,4 @@ class ThreeWaySpaBubblesSelect(WavespaEntity, SelectEntity):
         await self.entity_description.set_fn(
             self.coordinator.api, self.device_id, bubbles_level
         )
+        await self.coordinator.async_request_refresh()

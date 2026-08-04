@@ -9,5 +9,5 @@
   "iot_class": "cloud_push",
   "issue_tracker": "https://github.com/Minimad-Diver/ha-wavespa/issues",
   "requirements": ["websockets"],
-  "version": "1.4.0"
+  "version": "2.0.0"
 }

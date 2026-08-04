@@ -138,7 +138,7 @@ class AirjetSpaThermostat(WavespaEntity, ClimateEntity):
         """Set new target hvac mode."""
         should_heat = hvac_mode == HVACMode.HEAT
         await self.coordinator.api.airjet_spa_set_heat(self.device_id, should_heat)
-        await self.coordinator.async_refresh()
+        await self.coordinator.async_request_refresh()
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
         """Set a new target temperature."""
@@ -153,7 +153,7 @@ class AirjetSpaThermostat(WavespaEntity, ClimateEntity):
         await self.coordinator.api.airjet_spa_set_target_temp(
             self.device_id, target_temperature
         )
-        await self.coordinator.async_refresh()
+        await self.coordinator.async_request_refresh()
 
 
 class AirjetV01HydrojetSpaThermostat(WavespaEntity, ClimateEntity):
@@ -210,7 +210,7 @@ class AirjetV01HydrojetSpaThermostat(WavespaEntity, ClimateEntity):
     @property
     def temperature_unit(self) -> str:
         """Return the unit of measurement used by the platform."""
-        if not self.status or self.status.attrs["Tunit"]:
+        if not self.status or self.status.attrs.get("Tunit", 1):
             return str(UnitOfTemperature.CELSIUS)
         else:
             return str(UnitOfTemperature.FAHRENHEIT)
@@ -251,7 +251,7 @@ class AirjetV01HydrojetSpaThermostat(WavespaEntity, ClimateEntity):
             await self.coordinator.api.hydrojet_spa_set_heat(
                 self.device_id, HydrojetHeat.OFF
             )
-        await self.coordinator.async_refresh()
+        await self.coordinator.async_request_refresh()
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
         """Set a new target temperature."""
@@ -268,4 +268,4 @@ class AirjetV01HydrojetSpaThermostat(WavespaEntity, ClimateEntity):
         await self.coordinator.api.hydrojet_spa_set_target_temp(
             self.device_id, target_temperature
         )
-        await self.coordinator.async_refresh()
+        await self.coordinator.async_request_refresh()
