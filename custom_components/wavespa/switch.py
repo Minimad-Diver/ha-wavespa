@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from time import monotonic
 
 from typing import Any
 
@@ -117,6 +118,12 @@ class WavespaSwitch(WavespaEntity, SwitchEntity):
     entity_description: WavespaSwitchEntityDescription
     _attr_assumed_state = True
 
+    # If the device hasn't confirmed an optimistic change within this many
+    # seconds (e.g. the command silently failed), fall back to whatever the
+    # coordinator's real data says rather than getting stuck on a stale
+    # optimistic value forever.
+    _OPTIMISTIC_TIMEOUT_SECONDS = 10
+
     def __init__(
         self,
         coordinator: WavespaUpdateCoordinator,
@@ -129,6 +136,7 @@ class WavespaSwitch(WavespaEntity, SwitchEntity):
         self.entity_description = description
         self._attr_unique_id = f"{device_id}_{description.key}"
         self._optimistic_state: bool | None = None
+        self._optimistic_state_set_at: float | None = None
 
     @property
     def is_on(self) -> bool | None:
@@ -141,13 +149,39 @@ class WavespaSwitch(WavespaEntity, SwitchEntity):
         return None
 
     def _handle_coordinator_update(self) -> None:
-        """Clear optimistic state when real data arrives."""
-        self._optimistic_state = None
-        super()._handle_coordinator_update()    
+        """Clear optimistic state once confirmed, or after a timeout.
+
+        A coordinator update (poll or WebSocket push) can arrive before the
+        physical spa has actually applied a change we just sent - clearing
+        the optimistic overlay unconditionally would make the switch briefly
+        flash back to its old state in that window. So we only clear it
+        once the confirmed status agrees with what we optimistically set,
+        keeping the UI consistent with what the person just did until the
+        device genuinely catches up.
+
+        However, if the command never takes effect (e.g. it silently fails),
+        that condition would never be true and the switch would be stuck on
+        the optimistic value forever. To avoid that, we also give up on the
+        optimistic value after _OPTIMISTIC_TIMEOUT_SECONDS, falling back to
+        whatever the real device data says.
+        """
+        if self._optimistic_state is not None and (status := self.status):
+            confirmed = self.entity_description.value_fn(status) == self._optimistic_state
+            timed_out = (
+                self._optimistic_state_set_at is not None
+                and monotonic() - self._optimistic_state_set_at
+                >= self._OPTIMISTIC_TIMEOUT_SECONDS
+            )
+            if confirmed or timed_out:
+                self._optimistic_state = None
+                self._optimistic_state_set_at = None
+
+        super()._handle_coordinator_update()
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the switch on."""
         self._optimistic_state = True
+        self._optimistic_state_set_at = monotonic()
         self.async_write_ha_state()
         await self.entity_description.turn_on_fn(self.coordinator.api, self.device_id)
         await self.coordinator.async_request_refresh()
@@ -155,6 +189,7 @@ class WavespaSwitch(WavespaEntity, SwitchEntity):
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the switch off."""
         self._optimistic_state = False
+        self._optimistic_state_set_at = monotonic()
         self.async_write_ha_state()
         await self.entity_description.turn_off_fn(self.coordinator.api, self.device_id)
         await self.coordinator.async_request_refresh()
