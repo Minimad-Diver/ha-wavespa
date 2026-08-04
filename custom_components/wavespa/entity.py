@@ -63,4 +63,4 @@ class WavespaEntity(CoordinatorEntity[WavespaUpdateCoordinator]):
         coordinator has data and the device is known.
 
         """
-        return self.coordinator.last_update_success and self.bestway_device is not None
+        return self.coordinator.last_update_success and self.wavespa_device is not None
