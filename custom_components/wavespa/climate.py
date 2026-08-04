@@ -54,7 +54,6 @@ class AirjetSpaThermostat(WavespaEntity, ClimateEntity):
     _attr_hvac_modes = [HVACMode.OFF, HVACMode.HEAT]
     _attr_precision = PRECISION_WHOLE
     _attr_target_temperature_step = 1
-    _enable_turn_on_off_backwards_compatibility = False
 
     def __init__(
         self,
@@ -165,7 +164,6 @@ class AirjetV01HydrojetSpaThermostat(WavespaEntity, ClimateEntity):
     _attr_hvac_modes = [HVACMode.OFF, HVACMode.HEAT]
     _attr_precision = PRECISION_WHOLE
     _attr_target_temperature_step = 1
-    _enable_turn_on_off_backwards_compatibility = False
 
     def __init__(
         self,
