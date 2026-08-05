@@ -8,6 +8,13 @@
           "password": "Password",
           "apiroot": "API location"
         }
+      },
+      "reauth_confirm": {
+        "title": "Wavespa Re-authentication",
+        "description": "The stored credentials for {username} are no longer valid. Please re-enter the password.",
+        "data": {
+          "password": "Password"
+        }
       }
     },
     "error": {
@@ -17,7 +24,9 @@
       "unknown_connection_error": "Unexpected connector error - check logs for details"
     },
     "abort": {
-      "already_configured": "This Wavespa account is already configured"
+      "already_configured": "This Wavespa account is already configured",
+      "wrong_account": "The credentials are for a different Wavespa account",
+      "reauth_successful": "Re-authentication was successful"
     }
   }
 }

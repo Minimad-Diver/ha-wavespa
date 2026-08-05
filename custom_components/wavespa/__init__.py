@@ -8,10 +8,10 @@ from logging import getLogger
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .wavespa.api import WavespaApi
+from .wavespa.api import WavespaApi, WavespaAuthException
 from .wavespa.websocket import GizwitsWebSocket
 from .const import (
     CONF_API_ROOT,
@@ -66,7 +66,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             token = await WavespaApi.get_user_token(
                 session, username, password, api_root
             )
+        except WavespaAuthException as ex:
+            # Credentials are no longer valid (e.g. password changed) -
+            # retrying won't help, so prompt the user to re-authenticate.
+            _LOGGER.error("Authentication failed while refreshing token: %s", ex)
+            raise ConfigEntryAuthFailed from ex
         except Exception as ex:  # pylint: disable=broad-except
+            # Transient problem (network, server) - let HA retry setup later.
             _LOGGER.error("Failed to refresh API token: %s", ex)
             raise ConfigEntryNotReady from ex
         user_token = token.user_token

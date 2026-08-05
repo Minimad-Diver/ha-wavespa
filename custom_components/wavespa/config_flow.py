@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping
 from logging import getLogger
 
 from typing import Any
@@ -44,6 +45,12 @@ _STEP_USER_DATA_SCHEMA = vol.Schema(
                 ]
             )
         ),
+    }
+)
+
+_STEP_REAUTH_DATA_SCHEMA = vol.Schema(
+    {
+        vol.Required(CONF_PASSWORD): str,
     }
 )
 
@@ -109,4 +116,62 @@ class WavespaConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="user", data_schema=_STEP_USER_DATA_SCHEMA, errors=errors
+        )
+
+    async def async_step_reauth(
+        self, entry_data: Mapping[str, Any]
+    ) -> ConfigFlowResult:
+        """Handle re-authentication when stored credentials stop working."""
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Confirm re-authentication by re-prompting for the password."""
+        reauth_entry = self._get_reauth_entry()
+
+        if user_input is None:
+            return self.async_show_form(
+                step_id="reauth_confirm",
+                data_schema=_STEP_REAUTH_DATA_SCHEMA,
+                description_placeholders={
+                    CONF_USERNAME: reauth_entry.data[CONF_USERNAME]
+                },
+            )
+
+        errors = {}
+
+        # Reuse the stored username and API location; only the password
+        # is re-entered.
+        validate_data = {
+            CONF_USERNAME: reauth_entry.data[CONF_USERNAME],
+            CONF_API_ROOT: reauth_entry.data[CONF_API_ROOT],
+            CONF_PASSWORD: user_input[CONF_PASSWORD],
+        }
+
+        try:
+            config_entry_data = await validate_input(self.hass, validate_data)
+        except WavespaUserDoesNotExistException:
+            errors["base"] = "user_does_not_exist"
+        except WavespaIncorrectPasswordException:
+            errors["base"] = "incorrect_password"
+        except ClientConnectionError:
+            errors["base"] = "cannot_connect"
+        except Exception:  # pylint: disable=broad-except
+            _LOGGER.exception("Unexpected exception")
+            errors["base"] = "unknown_connection_error"
+        else:
+            # The account must match the one already configured.
+            await self.async_set_unique_id(config_entry_data[CONF_UID])
+            self._abort_if_unique_id_mismatch(reason="wrong_account")
+
+            return self.async_update_reload_and_abort(
+                reauth_entry, data_updates=config_entry_data
+            )
+
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=_STEP_REAUTH_DATA_SCHEMA,
+            description_placeholders={CONF_USERNAME: reauth_entry.data[CONF_USERNAME]},
+            errors=errors,
         )
