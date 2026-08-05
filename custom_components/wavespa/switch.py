@@ -28,40 +28,40 @@ class WavespaSwitchEntityDescription(SwitchEntityDescription):
     turn_on_fn: Callable[[WavespaApi, str], Awaitable[None]]
     turn_off_fn: Callable[[WavespaApi, str], Awaitable[None]]
 
-_AIRJET_SPA_POWER_SWITCH = WavespaSwitchEntityDescription(
+_SPA_POWER_SWITCH = WavespaSwitchEntityDescription(
     key="Heater",
     name="Heater",
     icon=Icon.POWER,
     value_fn=lambda s: bool(s.attrs["Heater"]),
-    turn_on_fn=lambda api, device_id: api.airjet_spa_set_power(device_id, True),
-    turn_off_fn=lambda api, device_id: api.airjet_spa_set_power(device_id, False),
+    turn_on_fn=lambda api, device_id: api.spa_set_power(device_id, True),
+    turn_off_fn=lambda api, device_id: api.spa_set_power(device_id, False),
 )
 
-_AIRJET_SPA_FILTER_SWITCH = WavespaSwitchEntityDescription(
+_SPA_FILTER_SWITCH = WavespaSwitchEntityDescription(
     key="Filter",
     name="Filter",
     icon=Icon.FILTER,
     value_fn=lambda s: bool(s.attrs["Filter"]),
-    turn_on_fn=lambda api, device_id: api.airjet_spa_set_filter(device_id, True),
-    turn_off_fn=lambda api, device_id: api.airjet_spa_set_filter(device_id, False),
+    turn_on_fn=lambda api, device_id: api.spa_set_filter(device_id, True),
+    turn_off_fn=lambda api, device_id: api.spa_set_filter(device_id, False),
 )
 
-_AIRJET_SPA_BUBBLES_SWITCH = WavespaSwitchEntityDescription(
+_SPA_BUBBLES_SWITCH = WavespaSwitchEntityDescription(
     key="Bubble",
     name="Bubbles",
     icon=Icon.BUBBLES,
     value_fn=lambda s: bool(s.attrs["Bubble"]),
-    turn_on_fn=lambda api, device_id: api.airjet_spa_set_bubbles(device_id, True),
-    turn_off_fn=lambda api, device_id: api.airjet_spa_set_bubbles(device_id, False),
+    turn_on_fn=lambda api, device_id: api.spa_set_bubbles(device_id, True),
+    turn_off_fn=lambda api, device_id: api.spa_set_bubbles(device_id, False),
 )
 
-_AIRJET_SPA_LOCK_SWITCH = WavespaSwitchEntityDescription(
+_SPA_LOCK_SWITCH = WavespaSwitchEntityDescription(
     key="spa_locked",
     name="Spa Locked",
     icon=Icon.LOCK,
     value_fn=lambda s: bool(s.attrs["locked"]),
-    turn_on_fn=lambda api, device_id: api.airjet_spa_set_locked(device_id, True),
-    turn_off_fn=lambda api, device_id: api.airjet_spa_set_locked(device_id, False),
+    turn_on_fn=lambda api, device_id: api.spa_set_locked(device_id, True),
+    turn_off_fn=lambda api, device_id: api.spa_set_locked(device_id, False),
 )
 
 async def async_setup_entry(
@@ -86,25 +86,25 @@ async def async_setup_entry(
                         coordinator,
                         config_entry,
                         device_id,
-                        _AIRJET_SPA_POWER_SWITCH
+                        _SPA_POWER_SWITCH
                     ),
                     WavespaSwitch(
                         coordinator,
                         config_entry,
                         device_id,
-                        _AIRJET_SPA_FILTER_SWITCH,
+                        _SPA_FILTER_SWITCH,
                     ),
                     WavespaSwitch(
                         coordinator,
                         config_entry,
                         device_id,
-                        _AIRJET_SPA_BUBBLES_SWITCH,
+                        _SPA_BUBBLES_SWITCH,
                     ),
                     WavespaSwitch(
                         coordinator,
                         config_entry,
                         device_id,
-                        _AIRJET_SPA_LOCK_SWITCH,
+                        _SPA_LOCK_SWITCH,
                     ),
                 ]
             )

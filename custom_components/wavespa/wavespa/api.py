@@ -265,7 +265,7 @@ class WavespaApi:
 
         return WavespaApiResults(self._state_cache)
 
-    async def airjet_spa_set_power(self, device_id: str, power: bool) -> None:
+    async def spa_set_power(self, device_id: str, power: bool) -> None:
         """Turn the spa on/off."""
         if (cached_state := self._state_cache.get(device_id)) is None:
             raise WavespaException(f"Device '{device_id}' is not recognised")
@@ -281,7 +281,7 @@ class WavespaApi:
             cached_state.attrs["Heater"] = 0
             cached_state.attrs["Bubble"] = 0
 
-    async def airjet_spa_set_filter(self, device_id: str, filtering: bool) -> None:
+    async def spa_set_filter(self, device_id: str, filtering: bool) -> None:
         """Turn the filter pump on/off on a spa device."""
         if (cached_state := self._state_cache.get(device_id)) is None:
             raise WavespaException(f"Device '{device_id}' is not recognised")
@@ -297,7 +297,7 @@ class WavespaApi:
             cached_state.attrs["Bubble"] = 0
             cached_state.attrs["Heater"] = 0
 
-    async def airjet_spa_set_heat(self, device_id: str, heat: bool) -> None:
+    async def spa_set_heat(self, device_id: str, heat: bool) -> None:
         """
         Turn the heater on/off on a spa device.
 
@@ -314,7 +314,7 @@ class WavespaApi:
         if heat:
             cached_state.attrs["Filter"] = 1
 
-    async def airjet_spa_set_target_temp(
+    async def spa_set_target_temp(
         self, device_id: str, target_temp: int
     ) -> None:
         """Set the target temperature on a spa device."""
@@ -327,7 +327,7 @@ class WavespaApi:
         cached_state.timestamp = int(time())
         cached_state.attrs["Temperature_setup"] = target_temp
 
-    async def airjet_spa_set_locked(self, device_id: str, locked: bool) -> None:
+    async def spa_set_locked(self, device_id: str, locked: bool) -> None:
         """Lock or unlock the physical control panel on a spa device."""
         if (cached_state := self._state_cache.get(device_id)) is None:
             raise WavespaException(f"Device '{device_id}' is not recognised")
@@ -338,8 +338,8 @@ class WavespaApi:
         cached_state.timestamp = int(time())
         cached_state.attrs["locked"] = api_value
 
-    async def airjet_spa_set_bubbles(self, device_id: str, bubbles: bool) -> None:
-        """Turn the bubbles on/off on an Airjet spa device."""
+    async def spa_set_bubbles(self, device_id: str, bubbles: bool) -> None:
+        """Turn the bubbles on/off on a spa device."""
         if (cached_state := self._state_cache.get(device_id)) is None:
             raise WavespaException(f"Device '{device_id}' is not recognised")
 

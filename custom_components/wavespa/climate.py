@@ -137,7 +137,7 @@ class WaveSpaThermostat(WavespaEntity, ClimateEntity):
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         """Set new target hvac mode."""
         should_heat = hvac_mode == HVACMode.HEAT
-        await self.coordinator.api.airjet_spa_set_heat(self.device_id, should_heat)
+        await self.coordinator.api.spa_set_heat(self.device_id, should_heat)
         await self.coordinator.async_request_refresh()
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
@@ -148,9 +148,9 @@ class WaveSpaThermostat(WavespaEntity, ClimateEntity):
 
         if hvac_mode := kwargs.get(ATTR_HVAC_MODE):
             should_heat = hvac_mode == HVACMode.HEAT
-            await self.coordinator.api.airjet_spa_set_heat(self.device_id, should_heat)
+            await self.coordinator.api.spa_set_heat(self.device_id, should_heat)
 
-        await self.coordinator.api.airjet_spa_set_target_temp(
+        await self.coordinator.api.spa_set_target_temp(
             self.device_id, target_temperature
         )
         await self.coordinator.async_request_refresh()
