@@ -11,20 +11,18 @@ from typing import Any
 
 from aiohttp import ClientResponse, ClientSession
 
+from ..const import GIZWITS_APP_ID
 from .model import (
     WavespaDevice,
     WavespaDeviceStatus,
     WavespaDeviceType,
     WavespaUserToken,
-    BubblesLevel,
-    HydrojetFilter,
-    HydrojetHeat,
 )
 
 _LOGGER = getLogger(__name__)
 _HEADERS = {
     "Content-type": "application/json; charset=UTF-8",
-    "X-Gizwits-Application-Id": "78a879318939402b9c70819d918ef8ed",
+    "X-Gizwits-Application-Id": GIZWITS_APP_ID,
     "User-Agent": "okhttp/5.0.0-alpha.3",
     "Connection": "Keep-Alive",
 }
@@ -168,6 +166,8 @@ class WavespaApi:
                 raw["wifi_soft_version"],
                 raw["wifi_hard_version"],
                 raw["is_online"],
+                ws_host=raw.get("host", "m2m.gizwits.com"),
+                ws_port=raw.get("wss_port", 8880),
             )
             for raw in api_data["devices"]
         ]
@@ -206,30 +206,19 @@ class WavespaApi:
             _LOGGER.debug("New data received for device %s", did)
             device_attrs = latest_data["attr"]
 
-            # Preserve the previous time_filter value if it exists
-            previous_time_filter = None
+            # Merge onto any previously cached attrs. A poll response is
+            # normally a full snapshot, but Time_filter has been observed to
+            # be absent from some responses; merging preserves it (and any
+            # other occasionally-missing field) from the last known state,
+            # consistent with how WebSocket deltas are handled.
             if cached_state is not None:
-                previous_time_filter = cached_state.time_filter
+                merged_attrs = {**cached_state.attrs, **device_attrs}
+            else:
+                merged_attrs = device_attrs
 
             self._state_cache[did] = WavespaDeviceStatus(
-                latest_data["updated_at"], device_attrs, device_info
+                latest_data["updated_at"], merged_attrs
             )
-
-            # Update the cached state with the latest data
-            # If Time_filter is in the response, use it; otherwise preserve the previous value
-            if (
-                "Time_filter" in device_attrs
-                and device_attrs["Time_filter"] is not None
-            ):
-                self._state_cache[did].time_filter = device_attrs["Time_filter"]
-            elif previous_time_filter is not None:
-                # Preserve the previous value if Time_filter is not in this API response
-                self._state_cache[did].time_filter = previous_time_filter
-                _LOGGER.debug(
-                    "Time_filter not in API response for device %s, preserving previous value: %d",
-                    did,
-                    previous_time_filter,
-                )
 
             attr_dump = json.dumps(device_attrs)
 
@@ -248,7 +237,7 @@ class WavespaApi:
 
         return WavespaApiResults(self._state_cache)
 
-    async def airjet_spa_set_power(self, device_id: str, power: bool) -> None:
+    async def spa_set_power(self, device_id: str, power: bool) -> None:
         """Turn the spa on/off."""
         if (cached_state := self._state_cache.get(device_id)) is None:
             raise WavespaException(f"Device '{device_id}' is not recognised")
@@ -264,7 +253,7 @@ class WavespaApi:
             cached_state.attrs["Heater"] = 0
             cached_state.attrs["Bubble"] = 0
 
-    async def airjet_spa_set_filter(self, device_id: str, filtering: bool) -> None:
+    async def spa_set_filter(self, device_id: str, filtering: bool) -> None:
         """Turn the filter pump on/off on a spa device."""
         if (cached_state := self._state_cache.get(device_id)) is None:
             raise WavespaException(f"Device '{device_id}' is not recognised")
@@ -280,7 +269,7 @@ class WavespaApi:
             cached_state.attrs["Bubble"] = 0
             cached_state.attrs["Heater"] = 0
 
-    async def airjet_spa_set_heat(self, device_id: str, heat: bool) -> None:
+    async def spa_set_heat(self, device_id: str, heat: bool) -> None:
         """
         Turn the heater on/off on a spa device.
 
@@ -297,7 +286,7 @@ class WavespaApi:
         if heat:
             cached_state.attrs["Filter"] = 1
 
-    async def airjet_spa_set_target_temp(
+    async def spa_set_target_temp(
         self, device_id: str, target_temp: int
     ) -> None:
         """Set the target temperature on a spa device."""
@@ -310,26 +299,27 @@ class WavespaApi:
         cached_state.timestamp = int(time())
         cached_state.attrs["Temperature_setup"] = target_temp
 
-    async def airjet_spa_set_locked(self, device_id: str, locked: bool) -> None:
+    async def spa_set_locked(self, device_id: str, locked: bool) -> None:
         """Lock or unlock the physical control panel on a spa device."""
         if (cached_state := self._state_cache.get(device_id)) is None:
             raise WavespaException(f"Device '{device_id}' is not recognised")
 
         api_value = 1 if locked else 0
         _LOGGER.debug("Setting lock state to %s", "ON" if locked else "OFF")
-        await self._do_control_post(device_id, ocked=api_value)
+        await self._do_control_post(device_id, locked=api_value)
         cached_state.timestamp = int(time())
         cached_state.attrs["locked"] = api_value
 
-    async def airjet_spa_set_bubbles(self, device_id: str, bubbles: bool) -> None:
-        """Turn the bubbles on/off on an Airjet spa device."""
+    async def spa_set_bubbles(self, device_id: str, bubbles: bool) -> None:
+        """Turn the bubbles on/off on a spa device."""
         if (cached_state := self._state_cache.get(device_id)) is None:
             raise WavespaException(f"Device '{device_id}' is not recognised")
 
+        api_value = 1 if bubbles else 0
         _LOGGER.debug("Setting bubbles mode to %s", "ON" if bubbles else "OFF")
-        await self._do_control_post(device_id, Bubble=1 if bubbles else 0)
+        await self._do_control_post(device_id, Bubble=api_value)
         cached_state.timestamp = int(time())
-        cached_state.attrs["Bubble"] = bubbles
+        cached_state.attrs["Bubble"] = api_value
         if bubbles:
             cached_state.attrs["Heater"] = 1
 

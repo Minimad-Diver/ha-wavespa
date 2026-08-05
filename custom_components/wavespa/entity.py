@@ -54,9 +54,13 @@ class WavespaEntity(CoordinatorEntity[WavespaUpdateCoordinator]):
 
     @property
     def available(self) -> bool:
-        """Return True if entity is available."""
-        return (
-            self.coordinator.last_update_success
-            and self.wavespa_device is not None
-            and self.wavespa_device.is_online
-        )
+        """Return True if entity is available.
+
+        Note: is_online from the Gizwits API is unreliable and
+        frequently returns false even when the device is functioning and
+        controllable via the app. The API continues to return valid state
+        data regardless of this flag. We therefore only check that the
+        coordinator has data and the device is known.
+
+        """
+        return self.coordinator.last_update_success and self.wavespa_device is not None

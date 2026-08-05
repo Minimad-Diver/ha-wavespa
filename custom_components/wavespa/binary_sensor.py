@@ -35,6 +35,7 @@ _SPA_ERRORS_SENSOR_DESCRIPTION = BinarySensorEntityDescription(
     device_class=BinarySensorDeviceClass.PROBLEM,
 )
 
+
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
@@ -126,16 +127,16 @@ class DeviceErrorsSensor(WavespaEntity, BinarySensorEntity):
         if not self.status:
             return errors
 
-        # Airjet error properties
+        # error properties
         for attr in self.status.attrs:
             if re.match("system_err\\d+", attr):
                 errors[attr] = bool(self.status.attrs[attr])
 
-        # Airjet ground fault
+        # ground fault
         if "earth" in self.status.attrs:
             errors["earth"] = bool(self.status.attrs["earth"])
 
-        # Airjet_V01 and Hydrojet
+        # spa error properties
         for attr in self.status.attrs:
             # E32: Not actually an error. This means heating is on but the spa has
             #      already reached the desired temperature.

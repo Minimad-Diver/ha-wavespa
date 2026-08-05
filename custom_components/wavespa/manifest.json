@@ -1,13 +1,13 @@
 {
   "domain": "wavespa",
-  "name": "Wavespa",
-  "codeowners": ["@GraemeDBlue"],
+  "name": "WaveSpa",
+  "codeowners": ["@Minimad-Diver"],
   "config_flow": true,
   "dependencies": [],
-  "documentation": "https://github.com/GraemeDBlue/ha-wavespa",
+  "documentation": "https://github.com/Minimad-Diver/ha-wavespa",
   "integration_type": "device",
-  "iot_class": "cloud_polling",
-  "issue_tracker": "https://github.com/GraemeDBlue/ha-wavespa/issues",
-  "requirements": [],
-  "version": "1.4.0"
+  "iot_class": "cloud_push",
+  "issue_tracker": "https://github.com/Minimad-Diver/ha-wavespa/issues",
+  "requirements": ["websockets"],
+  "version": "2.0.0"
 }

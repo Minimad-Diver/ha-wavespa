@@ -8,14 +8,16 @@ from logging import getLogger
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .wavespa.api import WavespaApi
+from .wavespa.api import WavespaApi, WavespaAuthException
+from .wavespa.websocket import GizwitsWebSocket
 from .const import (
     CONF_API_ROOT,
     CONF_API_ROOT_EU,
     CONF_PASSWORD,
+    CONF_UID,
     CONF_USER_TOKEN,
     CONF_USER_TOKEN_EXPIRY,
     CONF_USERNAME,
@@ -27,7 +29,6 @@ _LOGGER = getLogger(__name__)
 _PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
     Platform.CLIMATE,
-    Platform.NUMBER,
     Platform.SELECT,
     Platform.SENSOR,
     Platform.SWITCH,
@@ -49,25 +50,39 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Check for an auth token
     # If we have one that expires within 30 days, refresh it
+    # Also refresh if UID is missing (for WebSocket support)
     expiry_cutoff = (datetime.now() + timedelta(days=30)).timestamp()
+    uid = entry.data.get(CONF_UID)
 
-    if user_token and expiry_cutoff < user_token_expiry:
+    if user_token and expiry_cutoff < user_token_expiry and uid:
         _LOGGER.info("Reusing existing access token")
     else:
-        _LOGGER.info("Requesting a new auth token")
+        if not uid:
+            _LOGGER.info("UID missing, fetching new token to enable WebSocket")
+        else:
+            _LOGGER.info("Requesting a new auth token")
+
         try:
             token = await WavespaApi.get_user_token(
                 session, username, password, api_root
             )
+        except WavespaAuthException as ex:
+            # Credentials are no longer valid (e.g. password changed) -
+            # retrying won't help, so prompt the user to re-authenticate.
+            _LOGGER.error("Authentication failed while refreshing token: %s", ex)
+            raise ConfigEntryAuthFailed from ex
         except Exception as ex:  # pylint: disable=broad-except
+            # Transient problem (network, server) - let HA retry setup later.
             _LOGGER.error("Failed to refresh API token: %s", ex)
             raise ConfigEntryNotReady from ex
         user_token = token.user_token
         user_token_expiry = token.expiry
+        uid = token.user_id
 
         new_config_data = {
             CONF_USER_TOKEN: user_token,
             CONF_USER_TOKEN_EXPIRY: user_token_expiry,
+            CONF_UID: uid,
         }
 
         hass.config_entries.async_update_entry(
@@ -75,8 +90,46 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
 
     api = WavespaApi(session, user_token, api_root)
-    coordinator = WavespaUpdateCoordinator(hass, api)
+    coordinator = WavespaUpdateCoordinator(hass, entry, api)
     await coordinator.async_config_entry_first_refresh()
+
+    # Initialize WebSocket for real-time updates
+    # uid variable is set above (either from config or from token refresh)
+    ws_client = None
+
+    if uid:
+        try:
+            # Get WebSocket endpoint from first device
+            if api.devices:
+                first_device = next(iter(api.devices.values()))
+
+                ws_client = GizwitsWebSocket(
+                    uid=uid,
+                    token=user_token,
+                    ws_host=first_device.ws_host,
+                    ws_port=first_device.ws_port,
+                    update_callback=coordinator.handle_websocket_update,
+                    disconnect_callback=coordinator.handle_websocket_disconnect,
+                )
+
+                # Connect in background
+                hass.async_create_task(ws_client.connect())
+
+                # Reduce polling now that WebSocket will provide real-time updates
+                coordinator.set_websocket_active()
+
+                _LOGGER.info("WebSocket client initialized")
+            else:
+                _LOGGER.warning("No devices found, WebSocket not initialized")
+        except Exception as ex:  # pylint: disable=broad-except
+            _LOGGER.warning(
+                "Failed to setup WebSocket, falling back to polling: %s", ex
+            )
+    else:
+        _LOGGER.info("No UID in config, WebSocket disabled (polling only)")
+
+    # Store WebSocket on coordinator to avoid data structure change
+    coordinator.websocket = ws_client
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, _PLATFORMS)
@@ -87,6 +140,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
+    coordinator = hass.data[DOMAIN][entry.entry_id]
+
+    # Cleanup WebSocket connection before tearing down platforms
+    if hasattr(coordinator, "websocket") and coordinator.websocket:
+        await coordinator.websocket.disconnect()
+        _LOGGER.info("WebSocket client disconnected")
+
     unload_ok: bool = await hass.config_entries.async_unload_platforms(
         entry, _PLATFORMS
     )
