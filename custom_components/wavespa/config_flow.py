@@ -98,6 +98,11 @@ class WavespaConfigFlow(ConfigFlow, domain=DOMAIN):
             _LOGGER.exception("Unexpected exception")
             errors["base"] = "unknown_connection_error"
         else:
+            # The account UID uniquely identifies the Wavespa account, so use
+            # it to prevent the same account being added more than once.
+            await self.async_set_unique_id(config_entry_data[CONF_UID])
+            self._abort_if_unique_id_configured()
+
             return self.async_create_entry(
                 title=user_input[CONF_USERNAME], data=config_entry_data
             )

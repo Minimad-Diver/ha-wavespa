@@ -15,6 +15,9 @@
       "user_does_not_exist": "User account does not exist",
       "incorrect_password": "Incorrect password",
       "unknown_connection_error": "Unexpected connector error - check logs for details"
+    },
+    "abort": {
+      "already_configured": "This Wavespa account is already configured"
     }
   }
 }
