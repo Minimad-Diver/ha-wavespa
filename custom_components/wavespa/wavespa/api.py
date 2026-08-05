@@ -299,17 +299,6 @@ class WavespaApi:
         cached_state.timestamp = int(time())
         cached_state.attrs["Temperature_setup"] = target_temp
 
-    async def spa_set_locked(self, device_id: str, locked: bool) -> None:
-        """Lock or unlock the physical control panel on a spa device."""
-        if (cached_state := self._state_cache.get(device_id)) is None:
-            raise WavespaException(f"Device '{device_id}' is not recognised")
-
-        api_value = 1 if locked else 0
-        _LOGGER.debug("Setting lock state to %s", "ON" if locked else "OFF")
-        await self._do_control_post(device_id, locked=api_value)
-        cached_state.timestamp = int(time())
-        cached_state.attrs["locked"] = api_value
-
     async def spa_set_bubbles(self, device_id: str, bubbles: bool) -> None:
         """Turn the bubbles on/off on a spa device."""
         if (cached_state := self._state_cache.get(device_id)) is None:
