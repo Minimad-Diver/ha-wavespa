@@ -41,11 +41,11 @@ def bypass_setup_fixture():
     """
     with (
         patch(
-            "custom_components.bestway.async_setup_entry",
+            "custom_components.wavespa.async_setup_entry",
             return_value=True,
         ),
         patch(
-            "custom_components.bestway.async_unload_entry",
+            "custom_components.wavespa.async_unload_entry",
             return_value=True,
         ),
     ):
