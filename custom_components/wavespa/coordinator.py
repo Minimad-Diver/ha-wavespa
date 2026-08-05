@@ -24,7 +24,7 @@ class WavespaUpdateCoordinator(DataUpdateCoordinator[WavespaApiResults]):
         super().__init__(
             hass,
             _LOGGER,
-            config_entry=config_entry,
+			config_entry=config_entry,
             name="Wavespa API",
             update_interval=timedelta(seconds=30),
         )
@@ -65,26 +65,24 @@ class WavespaUpdateCoordinator(DataUpdateCoordinator[WavespaApiResults]):
             "WebSocket update for device %s with %d attributes", device_id, len(attrs)
         )
 
-        device_info = self.api.devices.get(device_id)
-        if device_info is None:
+        if device_id not in self.api.devices:
             _LOGGER.warning(
                 "Received WebSocket update for unrecognised device %s", device_id
             )
             return
 
-        # Update state cache with real-time data
+        # A WebSocket s2c_noti delta only contains the fields that changed,
+        # not the full device state. Merge it onto the existing cached attrs
+        # so unmentioned fields (e.g. Time_filter, or any control field an
+        # entity reads) keep their last known value instead of vanishing and
+        # causing KeyErrors or dropped readings.
+        existing = self.api._state_cache.get(device_id)
+        merged_attrs = {**existing.attrs, **attrs} if existing else dict(attrs)
+
         self.api._state_cache[device_id] = WavespaDeviceStatus(
             timestamp=int(time()),
-            attrs=attrs,
-            _device=device_info,
+            attrs=merged_attrs,
         )
-
-        # If this update includes a fresh Time_filter value, store it on the
-        # device so it's reflected immediately. Otherwise the existing
-        # value on device_info (carried forward by refresh_bindings) is
-        # used as-is via the WavespaDeviceStatus.time_filter property.
-        if "Time_filter" in attrs and attrs["Time_filter"] is not None:
-            self.api._state_cache[device_id].time_filter = attrs["Time_filter"]
 
         # Track last WebSocket update time for this device
         self._ws_last_update[device_id] = time()

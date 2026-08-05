@@ -119,33 +119,32 @@ AIRJET_V01_BUBBLES_MAP = BubblesMapping(BV(0), BV(50, [50, 51]), BV(100))
 HYDROJET_BUBBLES_MAP = BubblesMapping(BV(0), BV(40), BV(100))
 
 
+# Maximum raw "Time_filter" countdown value reported by the device, used to
+# convert the raw value into a remaining-life percentage.
+_TIME_FILTER_MAX = 10200
+
+
 @dataclass
 class WavespaDeviceStatus:
     """A snapshot of the status of a spa device."""
 
     timestamp: int
     attrs: dict[str, Any]
-    _device: WavespaDevice
-
-    @property
-    def time_filter(self) -> int | None:
-        """Calculate and return the time filter percentage based on API attributes."""
-        if self._device.time_filter is None:
-            return None
-        return self._device.time_filter
-
-    @time_filter.setter
-    def time_filter(self, value: int) -> None:
-        """Set the time filter value in the parent device."""
-        _LOGGER.debug(
-            "Setting time filter to %d for device %s", value, self._device.device_id
-        )
-        self._device.time_filter = value
 
     @property
     def percent_filter(self) -> int | None:
-        """Get the time filter percentage from the parent device."""
-        return self._device.time_percent
+        """Get the filter life as a percentage, derived from attrs.
+
+        The device reports a raw "Time_filter" countdown in attrs; this
+        converts it to a remaining-life percentage. Because it reads from
+        attrs (which the coordinator merges across WebSocket deltas), the
+        value persists even when a partial update omits Time_filter.
+        """
+        raw = self.attrs.get("Time_filter")
+        if raw is None:
+            return None
+        percent = 100 - ((raw / _TIME_FILTER_MAX) * 100)
+        return max(0, min(100, int(percent)))
 
 
 @dataclass
@@ -163,38 +162,11 @@ class WavespaDevice:
     is_online: bool
     ws_host: str = "m2m.gizwits.com"  # WebSocket hostname from bindings API
     ws_port: int = 8880  # WebSocket port from bindings API
-    _time_filter: int | None = None  # Internal storage for time filter
 
     @property
     def device_type(self) -> WavespaDeviceType:
         """Get the derived device type."""
         return WavespaDeviceType.from_api_product_name(self.product_name)
-
-    @property
-    def time_filter(self) -> int | None:
-        """Get the time filter value for the device."""
-        return self._time_filter
-
-    @time_filter.setter
-    def time_filter(self, value: int | None) -> None:
-        """Set the time filter value for the device."""
-        if value is not None and (value < 0 or value > 10200):
-            raise ValueError("time_filter must be between 0 and 10200")
-        _LOGGER.debug("Setting time filter to %d for device %s", value, self.device_id)
-        self._time_filter = value
-
-    @property
-    def time_percent(self) -> int | None:
-        """Get the time filter percentage for the device."""
-        if self._time_filter is None:
-            return None
-        return self.format_time_filter(self._time_filter)
-
-    @staticmethod
-    def format_time_filter(time_filter: int) -> int:
-        """Convert a time filter value to a percentage."""
-        percent = 100 - ((time_filter / 10200) * 100)
-        return max(0, min(100, int(percent)))
 
 
 @dataclass

@@ -144,26 +144,9 @@ class WavespaApi:
 
     async def refresh_bindings(self) -> None:
         """Refresh and store the list of devices available in the account."""
-        previous_devices = self.devices
-
-        new_devices = {
+        self.devices = {
             device.device_id: device for device in await self._get_devices()
         }
-
-        # `time_filter` is tracked locally (it isn't part of the bindings API
-        # response) and lives on the WavespaDevice object itself. Since this
-        # method rebuilds that object from scratch every time it's called
-        # (once per poll cycle), carry the previous value forward onto the
-        # new object before it replaces the old one. This closes a race
-        # condition where a WebSocket update landing between this refresh
-        # and the next fetch_data() call would otherwise see a blank
-        # (None) time_filter and briefly report the filter sensor as
-        # unknown.
-        for did, device in new_devices.items():
-            if (previous_device := previous_devices.get(did)) is not None:
-                device.time_filter = previous_device.time_filter
-
-        self.devices = new_devices
 
     async def _get_devices(self) -> list[WavespaDevice]:
         """Get the list of devices available in the account."""
@@ -223,30 +206,19 @@ class WavespaApi:
             _LOGGER.debug("New data received for device %s", did)
             device_attrs = latest_data["attr"]
 
-            # Preserve the previous time_filter value if it exists
-            previous_time_filter = None
+            # Merge onto any previously cached attrs. A poll response is
+            # normally a full snapshot, but Time_filter has been observed to
+            # be absent from some responses; merging preserves it (and any
+            # other occasionally-missing field) from the last known state,
+            # consistent with how WebSocket deltas are handled.
             if cached_state is not None:
-                previous_time_filter = cached_state.time_filter
+                merged_attrs = {**cached_state.attrs, **device_attrs}
+            else:
+                merged_attrs = device_attrs
 
             self._state_cache[did] = WavespaDeviceStatus(
-                latest_data["updated_at"], device_attrs, device_info
+                latest_data["updated_at"], merged_attrs
             )
-
-            # Update the cached state with the latest data
-            # If Time_filter is in the response, use it; otherwise preserve the previous value
-            if (
-                "Time_filter" in device_attrs
-                and device_attrs["Time_filter"] is not None
-            ):
-                self._state_cache[did].time_filter = device_attrs["Time_filter"]
-            elif previous_time_filter is not None:
-                # Preserve the previous value if Time_filter is not in this API response
-                self._state_cache[did].time_filter = previous_time_filter
-                _LOGGER.debug(
-                    "Time_filter not in API response for device %s, preserving previous value: %d",
-                    did,
-                    previous_time_filter,
-                )
 
             attr_dump = json.dumps(device_attrs)
 

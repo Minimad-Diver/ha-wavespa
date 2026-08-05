@@ -133,19 +133,16 @@ async def async_setup_entry(
                         lambda device: device.wifi_hard_version,
                     ),
                 ),
-                DeviceSensor(
+                FilterPercentSensor(
                     coordinator,
                     config_entry,
                     device_id,
-                    sensor_description=DeviceSensorDescription(
-                        SensorEntityDescription(
-                            key="percent_filter",
-                            name=f"{name_prefix} Filter",
-                            icon=Icon.HARDWARE,
-                            entity_category=EntityCategory.DIAGNOSTIC,
-                            native_unit_of_measurement="%",
-                        ),
-                        lambda device: device.time_percent,
+                    SensorEntityDescription(
+                        key="percent_filter",
+                        name=f"{name_prefix} Filter",
+                        icon=Icon.HARDWARE,
+                        entity_category=EntityCategory.DIAGNOSTIC,
+                        native_unit_of_measurement="%",
                     ),
                 ),
             ]
@@ -178,6 +175,29 @@ class DeviceSensor(WavespaEntity, SensorEntity):
         if (device := self.wavespa_device) is not None:
             return self.sensor_description.value_fn(device)
         return None
+
+class FilterPercentSensor(WavespaEntity, SensorEntity):
+    """Filter life percentage, derived from the device's current status."""
+
+    def __init__(
+        self,
+        coordinator: WavespaUpdateCoordinator,
+        config_entry: ConfigEntry,
+        device_id: str,
+        entity_description: SensorEntityDescription,
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator, config_entry, device_id)
+        self.entity_description = entity_description
+        self._attr_unique_id = f"{device_id}_{entity_description.key}"
+
+    @property
+    def native_value(self) -> StateType:
+        """Return the filter life percentage."""
+        if (status := self.status) is not None:
+            return status.percent_filter
+        return None
+
 
 class EstimatedPowerSensor(WavespaEntity, SensorEntity):
     """Estimated instantaneous power consumption for a spa.
