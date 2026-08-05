@@ -27,6 +27,7 @@ ESTIMATED_HEATER_WATTS = 1800
 ESTIMATED_BUBBLES_WATTS = 600
 ESTIMATED_FILTER_WATTS = 50
 
+
 @dataclass
 class DeviceSensorDescription:
     """An entity description with a function that describes how to derive a value."""
@@ -175,6 +176,7 @@ class DeviceSensor(WavespaEntity, SensorEntity):
         if (device := self.wavespa_device) is not None:
             return self.sensor_description.value_fn(device)
         return None
+
 
 class FilterPercentSensor(WavespaEntity, SensorEntity):
     """Filter life percentage, derived from the device's current status."""

@@ -28,6 +28,7 @@ class WavespaSwitchEntityDescription(SwitchEntityDescription):
     turn_on_fn: Callable[[WavespaApi, str], Awaitable[None]]
     turn_off_fn: Callable[[WavespaApi, str], Awaitable[None]]
 
+
 _SPA_POWER_SWITCH = WavespaSwitchEntityDescription(
     key="Heater",
     name="Heater",
@@ -63,6 +64,7 @@ _SPA_LOCK_SWITCH = WavespaSwitchEntityDescription(
     turn_on_fn=lambda api, device_id: api.spa_set_locked(device_id, True),
     turn_off_fn=lambda api, device_id: api.spa_set_locked(device_id, False),
 )
+
 
 async def async_setup_entry(
     hass: HomeAssistant,

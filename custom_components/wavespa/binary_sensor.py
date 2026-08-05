@@ -35,6 +35,7 @@ _SPA_ERRORS_SENSOR_DESCRIPTION = BinarySensorEntityDescription(
     device_class=BinarySensorDeviceClass.PROBLEM,
 )
 
+
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,

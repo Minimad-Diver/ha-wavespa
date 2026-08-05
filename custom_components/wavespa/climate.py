@@ -70,15 +70,22 @@ class WaveSpaThermostat(WavespaEntity, ClimateEntity):
         """Return the current mode (HEAT or OFF)."""
         if not self.status:
             return None
-        return HVACMode.HEAT if self.status.attrs["Heater"] else HVACMode.OFF
+        heater = self.status.attrs.get("Heater")
+        if heater is None:
+            return None
+        return HVACMode.HEAT if heater else HVACMode.OFF
 
     @property
     def hvac_action(self) -> HVACAction | None:
         """Return the current running action (HEATING or IDLE)."""
         if not self.status:
             return None
-        heat_on = self.status.attrs["Heater"]
-        target_reached = (int(self.status.attrs["Temperature_setup"]) == int(self.status.attrs["Current_temperature"]))
+        heat_on = self.status.attrs.get("Heater")
+        target = self.status.attrs.get("Temperature_setup")
+        current = self.status.attrs.get("Current_temperature")
+        if heat_on is None or target is None or current is None:
+            return None
+        target_reached = int(target) == int(current)
         return (
             HVACAction.HEATING if (heat_on and not target_reached) else HVACAction.IDLE
         )
@@ -88,14 +95,16 @@ class WaveSpaThermostat(WavespaEntity, ClimateEntity):
         """Return the current temperature."""
         if not self.status:
             return None
-        return int(self.status.attrs["Current_temperature"])
+        current = self.status.attrs.get("Current_temperature")
+        return int(current) if current is not None else None
 
     @property
     def target_temperature(self) -> float | None:
         """Return the temperature we try to reach."""
         if not self.status:
             return None
-        return int(self.status.attrs["Temperature_setup"])
+        target = self.status.attrs.get("Temperature_setup")
+        return int(target) if target is not None else None
 
     @property
     def temperature_unit(self) -> str:

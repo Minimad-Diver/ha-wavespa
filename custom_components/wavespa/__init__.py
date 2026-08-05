@@ -134,16 +134,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
+    coordinator = hass.data[DOMAIN][entry.entry_id]
+
+    # Cleanup WebSocket connection before tearing down platforms
+    if hasattr(coordinator, "websocket") and coordinator.websocket:
+        await coordinator.websocket.disconnect()
+        _LOGGER.info("WebSocket client disconnected")
+
     unload_ok: bool = await hass.config_entries.async_unload_platforms(
         entry, _PLATFORMS
     )
     if unload_ok:
-       coordinator = hass.data[DOMAIN].pop(entry.entry_id)
-
-    # Cleanup WebSocket connection
-    if hasattr(coordinator, "websocket") and coordinator.websocket:
-        await coordinator.websocket.disconnect()
-        _LOGGER.info("WebSocket client disconnected")
+        hass.data[DOMAIN].pop(entry.entry_id)
 
     return unload_ok
 

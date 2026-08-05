@@ -315,10 +315,11 @@ class WavespaApi:
         if (cached_state := self._state_cache.get(device_id)) is None:
             raise WavespaException(f"Device '{device_id}' is not recognised")
 
+        api_value = 1 if bubbles else 0
         _LOGGER.debug("Setting bubbles mode to %s", "ON" if bubbles else "OFF")
-        await self._do_control_post(device_id, Bubble=1 if bubbles else 0)
+        await self._do_control_post(device_id, Bubble=api_value)
         cached_state.timestamp = int(time())
-        cached_state.attrs["Bubble"] = bubbles
+        cached_state.attrs["Bubble"] = api_value
         if bubbles:
             cached_state.attrs["Heater"] = 1
 
