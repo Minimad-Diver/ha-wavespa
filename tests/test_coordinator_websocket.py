@@ -26,6 +26,8 @@ async def test_coordinator_websocket_update(hass: HomeAssistant):
     # Create mock API
     api = MagicMock(spec=WavespaApi)
     api._state_cache = {}
+    # The coordinator ignores updates for unknown devices, so register it
+    api.devices = {"device123": MagicMock()}
 
     # Create coordinator
     coordinator = WavespaUpdateCoordinator(hass, config_entry, api)
@@ -108,6 +110,7 @@ async def test_multi_device_websocket_updates(hass: HomeAssistant):
 
     api = MagicMock(spec=WavespaApi)
     api._state_cache = {}
+    api.devices = {"device1": MagicMock(), "device2": MagicMock()}
 
     coordinator = WavespaUpdateCoordinator(hass, config_entry, api)
 
@@ -137,6 +140,7 @@ async def test_websocket_update_creates_device_status(hass: HomeAssistant):
 
     api = MagicMock(spec=WavespaApi)
     api._state_cache = {}
+    api.devices = {"device_abc": MagicMock()}
 
     coordinator = WavespaUpdateCoordinator(hass, config_entry, api)
 
@@ -164,6 +168,7 @@ async def test_coordinator_tracks_websocket_update_times(hass: HomeAssistant):
 
     api = MagicMock(spec=WavespaApi)
     api._state_cache = {}
+    api.devices = {"device1": MagicMock()}
 
     coordinator = WavespaUpdateCoordinator(hass, config_entry, api)
 
