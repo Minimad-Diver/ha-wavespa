@@ -56,15 +56,6 @@ _SPA_BUBBLES_SWITCH = WavespaSwitchEntityDescription(
     turn_off_fn=lambda api, device_id: api.spa_set_bubbles(device_id, False),
 )
 
-_SPA_LOCK_SWITCH = WavespaSwitchEntityDescription(
-    key="spa_locked",
-    name="Spa Locked",
-    icon=Icon.LOCK,
-    value_fn=lambda s: bool(s.attrs["locked"]),
-    turn_on_fn=lambda api, device_id: api.spa_set_locked(device_id, True),
-    turn_off_fn=lambda api, device_id: api.spa_set_locked(device_id, False),
-)
-
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -77,10 +68,9 @@ async def async_setup_entry(
     entities: list[WavespaEntity] = []
 
     for device_id, device in coordinator.api.devices.items():
-        # if device.device_type == WavespaDeviceType.WAVESPA_EU:
-
         if device.device_type in [
-            WavespaDeviceType.WAVESPA_EU, WavespaDeviceType.WAVESPA_US,
+            WavespaDeviceType.WAVESPA_EU,
+            WavespaDeviceType.WAVESPA_US,
         ]:
             entities.extend(
                 [
@@ -88,7 +78,7 @@ async def async_setup_entry(
                         coordinator,
                         config_entry,
                         device_id,
-                        _SPA_POWER_SWITCH
+                        _SPA_POWER_SWITCH,
                     ),
                     WavespaSwitch(
                         coordinator,
@@ -101,12 +91,6 @@ async def async_setup_entry(
                         config_entry,
                         device_id,
                         _SPA_BUBBLES_SWITCH,
-                    ),
-                    WavespaSwitch(
-                        coordinator,
-                        config_entry,
-                        device_id,
-                        _SPA_LOCK_SWITCH,
                     ),
                 ]
             )
@@ -151,7 +135,13 @@ class WavespaSwitch(WavespaEntity, SwitchEntity):
         if self._optimistic_state is not None:
             return self._optimistic_state
         if status := self.status:
-            return self.entity_description.value_fn(status)
+            try:
+                return self.entity_description.value_fn(status)
+            except (KeyError, TypeError):
+                # The expected attribute isn't present in this status
+                # (e.g. a partial update or a model that doesn't report it).
+                # Report unknown rather than raising and breaking the entity.
+                return None
 
         return None
 

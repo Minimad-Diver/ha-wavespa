@@ -234,41 +234,17 @@ class EstimatedPowerSensor(WavespaEntity, SensorEntity):
         attrs = self.status.attrs
         watts = 0
 
-        # Heater:
-        heater_active = False
-
-        if "heat_power" in attrs:
-            heater_active = bool(attrs.get("heat_power")) and not bool(
-                attrs.get("heat_temp_reach")
-            )
-        elif "heat" in attrs:
-            heater_active = (
-                int(attrs.get("heat") or 0) > 0 and int(attrs.get("heat") or 0) != 4
-            )
-
-        if heater_active:
+        # Heater is active when Heater == 1.
+        if int(attrs.get("Heater") or 0) == 1:
             watts += ESTIMATED_HEATER_WATTS
 
-        # Filter:
-        filter_active = False
-
-        if "filter_power" in attrs:
-            filter_active = bool(attrs.get("filter_power"))
-        elif "filter" in attrs:
-            filter_active = int(attrs.get("filter") or 0) == 2
-
-        if filter_active:
+        # Filter pump is active when Filter == 1.
+        if int(attrs.get("Filter") or 0) == 1:
             watts += ESTIMATED_FILTER_WATTS
 
-        # Bubbles:
-        bubbles_active = False
-
-        if "wave_power" in attrs:
-            bubbles_active = bool(attrs.get("wave_power"))
-        elif "wave" in attrs:
-            bubbles_active = int(attrs.get("wave") or 0) > 0
-
-        if bubbles_active:
+        # Bubbles are active when Bubble is non-zero (some models report a
+        # level rather than a simple on/off).
+        if int(attrs.get("Bubble") or 0) > 0:
             watts += ESTIMATED_BUBBLES_WATTS
 
         return watts
