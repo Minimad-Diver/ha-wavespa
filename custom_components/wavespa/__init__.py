@@ -130,7 +130,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Store WebSocket on coordinator to avoid data structure change
     coordinator.websocket = ws_client
-    
+
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, _PLATFORMS)
 
