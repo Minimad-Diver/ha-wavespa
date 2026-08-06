@@ -21,7 +21,7 @@ from homeassistant.helpers.typing import StateType
 from . import WavespaUpdateCoordinator
 from .const import DOMAIN, Icon
 from .entity import WavespaEntity
-from .wavespa.model import WavespaDevice, WavespaDeviceType
+from .wavespa.model import WavespaDevice
 
 ESTIMATED_HEATER_WATTS = 1800
 ESTIMATED_BUBBLES_WATTS = 600
@@ -45,20 +45,13 @@ async def async_setup_entry(
     coordinator: WavespaUpdateCoordinator = hass.data[DOMAIN][config_entry.entry_id]
     entities: list[WavespaEntity] = []
 
-    for device_id, device_info in coordinator.api.devices.items():
-        name_prefix = "Default"
-        if device_info.device_type in [
-            WavespaDeviceType.WAVESPA_EU, WavespaDeviceType.WAVESPA_US,
-        ]:
-
-            name_prefix = "WaveSpa"
-
+    for device_id in coordinator.api.devices:
         entities.append(
                 EstimatedPowerSensor(
                     coordinator,
                     config_entry,
                     device_id,
-                    name=f"{name_prefix} Estimated Power",
+                    name="Estimated Power",
                 )
             )
 
@@ -71,7 +64,7 @@ async def async_setup_entry(
                     sensor_description=DeviceSensorDescription(
                         SensorEntityDescription(
                             key="protocol_version",
-                            name=f"{name_prefix} Protocol Version",
+                            name="Protocol Version",
                             icon=Icon.PROTOCOL,
                             entity_category=EntityCategory.DIAGNOSTIC,
                         ),
@@ -85,7 +78,7 @@ async def async_setup_entry(
                     sensor_description=DeviceSensorDescription(
                         SensorEntityDescription(
                             key="mcu_soft_version",
-                            name=f"{name_prefix} MCU Software Version",
+                            name="MCU Software Version",
                             icon=Icon.SOFTWARE,
                             entity_category=EntityCategory.DIAGNOSTIC,
                         ),
@@ -99,7 +92,7 @@ async def async_setup_entry(
                     sensor_description=DeviceSensorDescription(
                         SensorEntityDescription(
                             key="mcu_hard_version",
-                            name=f"{name_prefix} MCU Hardware Version",
+                            name="MCU Hardware Version",
                             icon=Icon.HARDWARE,
                             entity_category=EntityCategory.DIAGNOSTIC,
                         ),
@@ -113,7 +106,7 @@ async def async_setup_entry(
                     sensor_description=DeviceSensorDescription(
                         SensorEntityDescription(
                             key="wifi_soft_version",
-                            name=f"{name_prefix} Wi-Fi Software Version",
+                            name="Wi-Fi Software Version",
                             icon=Icon.SOFTWARE,
                             entity_category=EntityCategory.DIAGNOSTIC,
                         ),
@@ -127,7 +120,7 @@ async def async_setup_entry(
                     sensor_description=DeviceSensorDescription(
                         SensorEntityDescription(
                             key="wifi_hard_version",
-                            name=f"{name_prefix} Wi-Fi Hardware Version",
+                            name="Wi-Fi Hardware Version",
                             icon=Icon.HARDWARE,
                             entity_category=EntityCategory.DIAGNOSTIC,
                         ),
@@ -140,7 +133,7 @@ async def async_setup_entry(
                     device_id,
                     SensorEntityDescription(
                         key="percent_filter",
-                        name=f"{name_prefix} Filter",
+                        name="Filter",
                         icon=Icon.HARDWARE,
                         entity_category=EntityCategory.DIAGNOSTIC,
                         native_unit_of_measurement="%",
