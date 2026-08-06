@@ -12,7 +12,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import WavespaUpdateCoordinator
-from .wavespa.model import WavespaDeviceType, HydrojetHeat
+from .wavespa.model import WavespaDeviceType
 from .const import DOMAIN
 from .entity import WavespaEntity
 
