@@ -38,7 +38,7 @@ This integration is delivered as a HACS custom repository.
 
 ## Configuration
 
-Ensure you can control your device using the Wavespa mobile app. 
+Ensure you can control your device using the Wavespa mobile app.
 
 - Go to **Configuration** > **Devices & Services** > **Add Integration**, then find **WaveSpa** in the list.
 - Enter your Wavespa username and password when prompted.

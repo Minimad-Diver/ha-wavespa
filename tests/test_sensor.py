@@ -5,24 +5,31 @@ These tests cover:
   Filter/Bubble attrs (exercises the shared _estimate_watts() helper)
 - EstimatedPowerSensor.extra_state_attributes
 - EstimatedEnergySensor: kWh integration across coordinator updates,
-  rounding, extra_state_attributes, and RestoreEntity restore behavior
+  rounding, extra_state_attributes, and RestoreSensor restore behavior
+- async_setup_entry: which entities each device type gets
 """
 
+from collections.abc import Iterable
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 from typing import Any
+
+from homeassistant.helpers.entity import Entity
 
 from custom_components.wavespa.wavespa.model import (
     WavespaDevice,
     WavespaDeviceStatus,
 )
 from custom_components.wavespa.wavespa.api import WavespaApiResults
+from custom_components.wavespa.const import DOMAIN
 from custom_components.wavespa.sensor import (
     ESTIMATED_BUBBLES_WATTS,
     ESTIMATED_FILTER_WATTS,
     ESTIMATED_HEATER_WATTS,
+    DeviceSensor,
     EstimatedEnergySensor,
     EstimatedPowerSensor,
+    async_setup_entry,
 )
 
 
@@ -226,26 +233,64 @@ class TestEstimatedEnergySensor:
             "filter_watts": ESTIMATED_FILTER_WATTS,
         }
 
-    async def test_restores_valid_last_state(self):
-        """A valid numeric last state restores the accumulated total."""
-        sensor = self._make_sensor()
-        last_state = MagicMock(state="1.234")
-
-        with patch.object(
-            sensor, "async_get_last_state", AsyncMock(return_value=last_state)
+    async def _add_to_hass(
+        self,
+        sensor: EstimatedEnergySensor,
+        sensor_data: Any = None,
+        last_state: Any = None,
+    ) -> None:
+        """Run async_added_to_hass with both restore sources stubbed out."""
+        with (
+            patch.object(
+                sensor,
+                "async_get_last_sensor_data",
+                AsyncMock(return_value=sensor_data),
+            ),
+            patch.object(
+                sensor, "async_get_last_state", AsyncMock(return_value=last_state)
+            ),
         ):
             await sensor.async_added_to_hass()
+
+    async def test_restores_native_value(self):
+        """The stored native value restores the accumulated total."""
+        sensor = self._make_sensor()
+
+        await self._add_to_hass(sensor, sensor_data=MagicMock(native_value=1.234))
 
         assert sensor._energy_kwh == 1.234
         assert sensor._last_update is not None
         assert sensor._last_watts == 0
 
-    async def test_no_restore_when_no_last_state(self):
-        """Starts from 0 when there is no previous state to restore."""
+    async def test_native_value_preferred_over_state(self):
+        """The native value wins over the displayed state.
+
+        The state string is rendered in whatever unit a registry override
+        applies, so restoring from it would corrupt the kWh total.
+        """
         sensor = self._make_sensor()
 
-        with patch.object(sensor, "async_get_last_state", AsyncMock(return_value=None)):
-            await sensor.async_added_to_hass()
+        await self._add_to_hass(
+            sensor,
+            sensor_data=MagicMock(native_value=1.5),
+            last_state=MagicMock(state="1500.0"),
+        )
+
+        assert sensor._energy_kwh == 1.5
+
+    async def test_falls_back_to_last_state_without_native_data(self):
+        """Entities stored before native data was written still restore."""
+        sensor = self._make_sensor()
+
+        await self._add_to_hass(sensor, last_state=MagicMock(state="1.234"))
+
+        assert sensor._energy_kwh == 1.234
+
+    async def test_no_restore_when_nothing_stored(self):
+        """Starts from 0 when there is no previous data to restore."""
+        sensor = self._make_sensor()
+
+        await self._add_to_hass(sensor)
 
         assert sensor._energy_kwh == 0.0
 
@@ -253,24 +298,24 @@ class TestEstimatedEnergySensor:
         """Sentinel states unknown/unavailable are not treated as data."""
         for sentinel in ("unknown", "unavailable"):
             sensor = self._make_sensor()
-            last_state = MagicMock(state=sentinel)
 
-            with patch.object(
-                sensor, "async_get_last_state", AsyncMock(return_value=last_state)
-            ):
-                await sensor.async_added_to_hass()
+            await self._add_to_hass(sensor, last_state=MagicMock(state=sentinel))
 
             assert sensor._energy_kwh == 0.0
 
     async def test_non_numeric_last_state_falls_back_to_zero(self):
         """A malformed state string does not raise; falls back to 0."""
         sensor = self._make_sensor()
-        last_state = MagicMock(state="not-a-number")
 
-        with patch.object(
-            sensor, "async_get_last_state", AsyncMock(return_value=last_state)
-        ):
-            await sensor.async_added_to_hass()
+        await self._add_to_hass(sensor, last_state=MagicMock(state="not-a-number"))
+
+        assert sensor._energy_kwh == 0.0
+
+    async def test_non_numeric_native_value_falls_back_to_zero(self):
+        """A malformed native value does not raise; falls back to 0."""
+        sensor = self._make_sensor()
+
+        await self._add_to_hass(sensor, sensor_data=MagicMock(native_value="broken"))
 
         assert sensor._energy_kwh == 0.0
 
@@ -278,7 +323,56 @@ class TestEstimatedEnergySensor:
         """After restore, the baseline wattage reflects current device state."""
         sensor = self._make_sensor({"Heater": 1, "Filter": 1, "Bubble": 0})
 
-        with patch.object(sensor, "async_get_last_state", AsyncMock(return_value=None)):
-            await sensor.async_added_to_hass()
+        await self._add_to_hass(sensor)
 
         assert sensor._last_watts == ESTIMATED_HEATER_WATTS + ESTIMATED_FILTER_WATTS
+
+
+# ---------------------------------------------------------------------------
+# async_setup_entry
+# ---------------------------------------------------------------------------
+
+
+class TestSetupEntry:
+    """Test which entities get created for each device type."""
+
+    async def _setup(self, product_name: str) -> list[Any]:
+        """Run async_setup_entry for one device and return the added entities."""
+        device = _make_device(product_name=product_name)
+        coordinator = _make_coordinator(device, _make_status())
+        hass = MagicMock()
+        hass.data = {DOMAIN: {"test_entry": coordinator}}
+        config_entry = MagicMock()
+        config_entry.entry_id = "test_entry"
+
+        added: list[Any] = []
+
+        def add_entities(
+            new_entities: Iterable[Entity], update_before_add: bool = False
+        ) -> None:
+            added.extend(new_entities)
+
+        await async_setup_entry(hass, config_entry, add_entities)
+        return added
+
+    async def test_spa_gets_estimated_sensors(self):
+        """A supported spa gets both estimate sensors."""
+        entities = await self._setup("Wave_SPA_EU")
+
+        assert any(isinstance(e, EstimatedPowerSensor) for e in entities)
+        assert any(isinstance(e, EstimatedEnergySensor) for e in entities)
+
+    async def test_unknown_device_skips_estimated_sensors(self):
+        """An unsupported device type gets no wattage estimates.
+
+        The estimates assume the spa's Heater/Filter/Bubble loads, so they
+        follow the same device-type gate as switch/climate/binary_sensor.
+        """
+        entities = await self._setup("Something_Else")
+
+        assert not any(
+            isinstance(e, (EstimatedPowerSensor, EstimatedEnergySensor))
+            for e in entities
+        )
+        # Diagnostic sensors are not gated, so they are still created.
+        assert any(isinstance(e, DeviceSensor) for e in entities)

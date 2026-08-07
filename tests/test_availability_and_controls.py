@@ -3,7 +3,7 @@
 These tests cover:
 - entity.py: available property ignoring unreliable is_online
 - switch.py: optimistic state tracking and confirmation-based clearing
-- climate.py: temperature_unit derived from device type
+- climate.py: temperature_unit derived from device type, and hvac_action
 """
 
 from unittest.mock import MagicMock, AsyncMock, patch
@@ -284,3 +284,75 @@ class TestClimateTemperatureUnit:
 
         thermostat = self._make_thermostat_no_status()
         assert thermostat.temperature_unit == str(UnitOfTemperature.CELSIUS)
+
+
+# ---------------------------------------------------------------------------
+# climate.py: hvac_action
+# ---------------------------------------------------------------------------
+
+
+class TestClimateHvacAction:
+    """Test the reported running action against heater state and temperature."""
+
+    def _make_thermostat(self, attrs: dict[str, Any] | None):
+        """Create a WaveSpaThermostat whose status carries the given attrs."""
+        from custom_components.wavespa.climate import WaveSpaThermostat
+
+        device = _make_device()
+        status = _make_status(attrs) if attrs is not None else None
+        coordinator = MagicMock()
+        coordinator.api = MagicMock()
+        coordinator.api.devices = {"test_device": device}
+        devices = {"test_device": status} if status is not None else {}
+        coordinator.data = WavespaApiResults(devices=devices)
+        coordinator.last_update_success = True
+        config_entry = MagicMock()
+        return WaveSpaThermostat(coordinator, config_entry, "test_device")
+
+    def test_heating_below_target(self):
+        """Heater on and below the target reports HEATING."""
+        from homeassistant.components.climate.const import HVACAction
+
+        thermostat = self._make_thermostat(
+            {"Heater": 1, "Current_temperature": 30, "Temperature_setup": 40}
+        )
+        assert thermostat.hvac_action == HVACAction.HEATING
+
+    def test_idle_at_target(self):
+        """Heater on and exactly at the target reports IDLE."""
+        from homeassistant.components.climate.const import HVACAction
+
+        thermostat = self._make_thermostat(
+            {"Heater": 1, "Current_temperature": 40, "Temperature_setup": 40}
+        )
+        assert thermostat.hvac_action == HVACAction.IDLE
+
+    def test_idle_above_target(self):
+        """An overshoot past the target reports IDLE, not HEATING."""
+        from homeassistant.components.climate.const import HVACAction
+
+        thermostat = self._make_thermostat(
+            {"Heater": 1, "Current_temperature": 41, "Temperature_setup": 40}
+        )
+        assert thermostat.hvac_action == HVACAction.IDLE
+
+    def test_idle_when_heater_off(self):
+        """Heater off reports IDLE regardless of temperature."""
+        from homeassistant.components.climate.const import HVACAction
+
+        thermostat = self._make_thermostat(
+            {"Heater": 0, "Current_temperature": 30, "Temperature_setup": 40}
+        )
+        assert thermostat.hvac_action == HVACAction.IDLE
+
+    def test_none_when_attrs_missing(self):
+        """Missing temperature attributes report unknown rather than guessing."""
+        status_attrs = {"Heater": 1, "Current_temperature": 30}
+        thermostat = self._make_thermostat(status_attrs)
+        thermostat.status.attrs.pop("Temperature_setup")
+        assert thermostat.hvac_action is None
+
+    def test_none_when_no_status(self):
+        """No status at all reports unknown."""
+        thermostat = self._make_thermostat(None)
+        assert thermostat.hvac_action is None

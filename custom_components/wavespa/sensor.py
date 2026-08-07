@@ -5,8 +5,10 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 from homeassistant.components.sensor import (
+    RestoreSensor,
     SensorDeviceClass,
     SensorEntity,
     SensorEntityDescription,
@@ -17,14 +19,13 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.typing import StateType
 from homeassistant.util import dt as dt_util
 
 from . import WavespaUpdateCoordinator
 from .const import DOMAIN, Icon
 from .entity import WavespaEntity
-from .wavespa.model import WavespaDevice, WavespaDeviceStatus
+from .wavespa.model import WavespaDevice, WavespaDeviceStatus, WavespaDeviceType
 
 ESTIMATED_HEATER_WATTS = 1800
 ESTIMATED_BUBBLES_WATTS = 600
@@ -72,24 +73,29 @@ async def async_setup_entry(
     coordinator: WavespaUpdateCoordinator = hass.data[DOMAIN][config_entry.entry_id]
     entities: list[WavespaEntity] = []
 
-    for device_id in coordinator.api.devices:
-        entities.append(
-            EstimatedPowerSensor(
-                coordinator,
-                config_entry,
-                device_id,
-                name="Estimated Power",
+    for device_id, device in coordinator.api.devices.items():
+        # The wattage estimates assume the spa's Heater/Filter/Bubble loads,
+        # so they only apply to the device types the other platforms support.
+        if device.device_type in [
+            WavespaDeviceType.WAVESPA_EU,
+            WavespaDeviceType.WAVESPA_US,
+        ]:
+            entities.extend(
+                [
+                    EstimatedPowerSensor(
+                        coordinator,
+                        config_entry,
+                        device_id,
+                        name="Estimated Power",
+                    ),
+                    EstimatedEnergySensor(
+                        coordinator,
+                        config_entry,
+                        device_id,
+                        name="Estimated Energy",
+                    ),
+                ]
             )
-        )
-
-        entities.append(
-            EstimatedEnergySensor(
-                coordinator,
-                config_entry,
-                device_id,
-                name="Estimated Energy",
-            )
-        )
 
         entities.extend(
             [
@@ -170,7 +176,7 @@ async def async_setup_entry(
                     SensorEntityDescription(
                         key="percent_filter",
                         name="Filter",
-                        icon=Icon.HARDWARE,
+                        icon=Icon.FILTER,
                         entity_category=EntityCategory.DIAGNOSTIC,
                         native_unit_of_measurement="%",
                     ),
@@ -272,7 +278,7 @@ class EstimatedPowerSensor(WavespaEntity, SensorEntity):
         }
 
 
-class EstimatedEnergySensor(WavespaEntity, RestoreEntity, SensorEntity):
+class EstimatedEnergySensor(WavespaEntity, RestoreSensor):
     """Estimated cumulative energy consumption for a spa.
 
     Integrates EstimatedPowerSensor's wattage over time (left-rectangle
@@ -305,19 +311,31 @@ class EstimatedEnergySensor(WavespaEntity, RestoreEntity, SensorEntity):
         """Restore the accumulated total across restarts."""
         await super().async_added_to_hass()
 
-        last_state = await self.async_get_last_state()
-        if last_state is not None and last_state.state not in (
-            None,
-            "unknown",
-            "unavailable",
-        ):
-            try:
-                self._energy_kwh = float(last_state.state)
-            except ValueError:
-                self._energy_kwh = 0.0
+        # Prefer the stored native value: it is always in this sensor's own
+        # unit (kWh), whereas the string state is rendered in whatever unit a
+        # registry override has applied, which would corrupt the total.
+        restored = await self.async_get_last_sensor_data()
+        if restored is not None and restored.native_value is not None:
+            self._energy_kwh = self._as_kwh(restored.native_value)
+        else:
+            # Entities that last ran before this sensor stored native data
+            # only have the string state to fall back on.
+            last_state = await self.async_get_last_state()
+            if last_state is not None:
+                self._energy_kwh = self._as_kwh(last_state.state)
 
         self._last_update = dt_util.utcnow()
         self._last_watts = _estimate_watts(self.status)
+
+    @staticmethod
+    def _as_kwh(value: Any) -> float:
+        """Coerce a restored value to kWh, falling back to 0 if unusable."""
+        if value in (None, "unknown", "unavailable"):
+            return 0.0
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return 0.0
 
     @callback
     def _handle_coordinator_update(self) -> None:

@@ -32,8 +32,10 @@ repos:
     rev: v1.35.1
     hooks:
       - id: yamllint
-  - repo: https://github.com/pre-commit/mirrors-prettier
-    rev: v4.0.0-alpha.8
+  # pre-commit/mirrors-prettier is archived upstream; JoC0de/pre-commit-prettier
+  # is the maintained continuation of it.
+  - repo: https://github.com/JoC0de/pre-commit-prettier
+    rev: v3.9.6
     hooks:
       - id: prettier
   - repo: https://github.com/cdce8p/python-typing-update

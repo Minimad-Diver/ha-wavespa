@@ -6,13 +6,12 @@ Wavespa devices change over time, so new devices can sometimes require changes t
 
 Raise an issue or log a pull request to update this list. Please do not suggest updates based on marketing material - only trust values that have been observed in the integration logs.
 
-| Model                                 | Protocol     |
-| ------------------------------------- | ------------ |
-| Wave Spa Garda                        | standard     |
+| Model          | Protocol |
+| -------------- | -------- |
+| Wave Spa Garda | standard |
 
 ## Protocol support
 
-| Protocol     | Supported          |
-| ------------ | ------------------ |
-| standard     | :white_check_mark: |
-
+| Protocol | Supported          |
+| -------- | ------------------ |
+| standard | :white_check_mark: |

@@ -86,7 +86,9 @@ class WaveSpaThermostat(WavespaEntity, ClimateEntity):
         current = self.status.attrs.get("Current_temperature")
         if heat_on is None or target is None or current is None:
             return None
-        target_reached = int(target) == int(current)
+        # Use >= so an overshoot (e.g. 41 °C against a 40 °C target) still
+        # counts as reached rather than reporting HEATING indefinitely.
+        target_reached = int(current) >= int(target)
         return (
             HVACAction.HEATING if (heat_on and not target_reached) else HVACAction.IDLE
         )
