@@ -11,21 +11,47 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.const import UnitOfPower
+from homeassistant.const import UnitOfEnergy, UnitOfPower
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.typing import StateType
+from homeassistant.util import dt as dt_util
 
 from . import WavespaUpdateCoordinator
 from .const import DOMAIN, Icon
 from .entity import WavespaEntity
-from .wavespa.model import WavespaDevice
+from .wavespa.model import WavespaDevice, WavespaDeviceStatus
 
 ESTIMATED_HEATER_WATTS = 1800
 ESTIMATED_BUBBLES_WATTS = 600
 ESTIMATED_FILTER_WATTS = 50
+
+
+def _estimate_watts(status: WavespaDeviceStatus | None) -> int:
+    """Estimate instantaneous power draw in watts from reported spa state."""
+    if status is None:
+        return 0
+
+    attrs = status.attrs
+    watts = 0
+
+    # Heater is active when Heater == 1.
+    if int(attrs.get("Heater") or 0) == 1:
+        watts += ESTIMATED_HEATER_WATTS
+
+    # Filter pump is active when Filter == 1.
+    if int(attrs.get("Filter") or 0) == 1:
+        watts += ESTIMATED_FILTER_WATTS
+
+    # Bubbles are active when Bubble is non-zero (some models report a
+    # level rather than a simple on/off).
+    if int(attrs.get("Bubble") or 0) > 0:
+        watts += ESTIMATED_BUBBLES_WATTS
+
+    return watts
 
 
 @dataclass
@@ -52,6 +78,15 @@ async def async_setup_entry(
                     config_entry,
                     device_id,
                     name="Estimated Power",
+                )
+            )
+
+        entities.append(
+                EstimatedEnergySensor(
+                    coordinator,
+                    config_entry,
+                    device_id,
+                    name="Estimated Energy",
                 )
             )
 
@@ -223,24 +258,80 @@ class EstimatedPowerSensor(WavespaEntity, SensorEntity):
         """Return estimated current power draw in watts."""
         if self.status is None:
             return None
+        return _estimate_watts(self.status)
 
-        attrs = self.status.attrs
-        watts = 0
+    @property
+    def extra_state_attributes(self) -> dict[str, int | str]:
+        """Return the assumptions used by this estimated sensor."""
+        return {
+            "calculation": "estimated",
+            "heater_watts": ESTIMATED_HEATER_WATTS,
+            "bubbles_watts": ESTIMATED_BUBBLES_WATTS,
+            "filter_watts": ESTIMATED_FILTER_WATTS,
+        }
 
-        # Heater is active when Heater == 1.
-        if int(attrs.get("Heater") or 0) == 1:
-            watts += ESTIMATED_HEATER_WATTS
 
-        # Filter pump is active when Filter == 1.
-        if int(attrs.get("Filter") or 0) == 1:
-            watts += ESTIMATED_FILTER_WATTS
+class EstimatedEnergySensor(WavespaEntity, RestoreEntity, SensorEntity):
+    """Estimated cumulative energy consumption for a spa.
 
-        # Bubbles are active when Bubble is non-zero (some models report a
-        # level rather than a simple on/off).
-        if int(attrs.get("Bubble") or 0) > 0:
-            watts += ESTIMATED_BUBBLES_WATTS
+    Integrates EstimatedPowerSensor's wattage over time (left-rectangle
+    approximation between coordinator updates) into a running kWh total,
+    so it can be added to the Home Assistant Energy dashboard, which only
+    accepts energy (kWh, total_increasing) entities, not power sensors.
+    """
 
-        return watts
+    _attr_device_class = SensorDeviceClass.ENERGY
+    _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+    _attr_icon = "mdi:lightning-bolt"
+
+    def __init__(
+        self,
+        coordinator: WavespaUpdateCoordinator,
+        config_entry: ConfigEntry,
+        device_id: str,
+        name: str,
+    ) -> None:
+        """Initialize the estimated energy sensor."""
+        super().__init__(coordinator, config_entry, device_id)
+        self._attr_name = name
+        self._attr_unique_id = f"{device_id}_estimated_energy"
+        self._energy_kwh = 0.0
+        self._last_update = None
+        self._last_watts = 0
+
+    async def async_added_to_hass(self) -> None:
+        """Restore the accumulated total across restarts."""
+        await super().async_added_to_hass()
+
+        last_state = await self.async_get_last_state()
+        if last_state is not None and last_state.state not in (None, "unknown", "unavailable"):
+            try:
+                self._energy_kwh = float(last_state.state)
+            except ValueError:
+                self._energy_kwh = 0.0
+
+        self._last_update = dt_util.utcnow()
+        self._last_watts = _estimate_watts(self.status)
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Integrate elapsed time at the previous wattage, then advance."""
+        now = dt_util.utcnow()
+
+        if self._last_update is not None:
+            elapsed_hours = (now - self._last_update).total_seconds() / 3600
+            self._energy_kwh += self._last_watts * elapsed_hours / 1000
+
+        self._last_update = now
+        self._last_watts = _estimate_watts(self.status)
+
+        super()._handle_coordinator_update()
+
+    @property
+    def native_value(self) -> float:
+        """Return the accumulated estimated energy in kWh."""
+        return round(self._energy_kwh, 3)
 
     @property
     def extra_state_attributes(self) -> dict[str, int | str]:
