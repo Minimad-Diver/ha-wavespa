@@ -148,7 +148,9 @@ class TestEstimatedPowerSensor:
 class TestEstimatedEnergySensor:
     """Test kWh integration, rounding, attributes, and restore behavior."""
 
-    def _make_sensor(self, attrs: dict[str, Any] | None = None) -> EstimatedEnergySensor:
+    def _make_sensor(
+        self, attrs: dict[str, Any] | None = None
+    ) -> EstimatedEnergySensor:
         device = _make_device()
         status = _make_status(attrs if attrs is not None else {})
         coordinator = _make_coordinator(device, status)
@@ -170,10 +172,13 @@ class TestEstimatedEnergySensor:
         t1 = t0 + timedelta(hours=2)
         t2 = t1 + timedelta(hours=1)
 
-        with patch(
-            "custom_components.wavespa.sensor.dt_util.utcnow",
-            side_effect=[t1, t2],
-        ), patch.object(sensor, "async_write_ha_state"):
+        with (
+            patch(
+                "custom_components.wavespa.sensor.dt_util.utcnow",
+                side_effect=[t1, t2],
+            ),
+            patch.object(sensor, "async_write_ha_state"),
+        ):
             sensor._last_update = t0
             sensor._last_watts = ESTIMATED_HEATER_WATTS
 
@@ -192,10 +197,13 @@ class TestEstimatedEnergySensor:
         """Nothing accumulates if _last_update was never set (no prior baseline)."""
         sensor = self._make_sensor({"Heater": 1})
 
-        with patch(
-            "custom_components.wavespa.sensor.dt_util.utcnow",
-            return_value=datetime(2026, 1, 1, tzinfo=timezone.utc),
-        ), patch.object(sensor, "async_write_ha_state"):
+        with (
+            patch(
+                "custom_components.wavespa.sensor.dt_util.utcnow",
+                return_value=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            ),
+            patch.object(sensor, "async_write_ha_state"),
+        ):
             assert sensor._last_update is None
             sensor._handle_coordinator_update()
 
@@ -236,9 +244,7 @@ class TestEstimatedEnergySensor:
         """Starts from 0 when there is no previous state to restore."""
         sensor = self._make_sensor()
 
-        with patch.object(
-            sensor, "async_get_last_state", AsyncMock(return_value=None)
-        ):
+        with patch.object(sensor, "async_get_last_state", AsyncMock(return_value=None)):
             await sensor.async_added_to_hass()
 
         assert sensor._energy_kwh == 0.0
@@ -272,9 +278,7 @@ class TestEstimatedEnergySensor:
         """After restore, the baseline wattage reflects current device state."""
         sensor = self._make_sensor({"Heater": 1, "Filter": 1, "Bubble": 0})
 
-        with patch.object(
-            sensor, "async_get_last_state", AsyncMock(return_value=None)
-        ):
+        with patch.object(sensor, "async_get_last_state", AsyncMock(return_value=None)):
             await sensor.async_added_to_hass()
 
         assert sensor._last_watts == ESTIMATED_HEATER_WATTS + ESTIMATED_FILTER_WATTS

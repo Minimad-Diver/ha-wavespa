@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -73,22 +74,22 @@ async def async_setup_entry(
 
     for device_id in coordinator.api.devices:
         entities.append(
-                EstimatedPowerSensor(
-                    coordinator,
-                    config_entry,
-                    device_id,
-                    name="Estimated Power",
-                )
+            EstimatedPowerSensor(
+                coordinator,
+                config_entry,
+                device_id,
+                name="Estimated Power",
             )
+        )
 
         entities.append(
-                EstimatedEnergySensor(
-                    coordinator,
-                    config_entry,
-                    device_id,
-                    name="Estimated Energy",
-                )
+            EstimatedEnergySensor(
+                coordinator,
+                config_entry,
+                device_id,
+                name="Estimated Energy",
             )
+        )
 
         entities.extend(
             [
@@ -297,7 +298,7 @@ class EstimatedEnergySensor(WavespaEntity, RestoreEntity, SensorEntity):
         self._attr_name = name
         self._attr_unique_id = f"{device_id}_estimated_energy"
         self._energy_kwh = 0.0
-        self._last_update = None
+        self._last_update: datetime | None = None
         self._last_watts = 0
 
     async def async_added_to_hass(self) -> None:
@@ -305,7 +306,11 @@ class EstimatedEnergySensor(WavespaEntity, RestoreEntity, SensorEntity):
         await super().async_added_to_hass()
 
         last_state = await self.async_get_last_state()
-        if last_state is not None and last_state.state not in (None, "unknown", "unavailable"):
+        if last_state is not None and last_state.state not in (
+            None,
+            "unknown",
+            "unavailable",
+        ):
             try:
                 self._energy_kwh = float(last_state.state)
             except ValueError:

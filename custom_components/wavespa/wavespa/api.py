@@ -286,9 +286,7 @@ class WavespaApi:
         if heat:
             cached_state.attrs["Filter"] = 1
 
-    async def spa_set_target_temp(
-        self, device_id: str, target_temp: int
-    ) -> None:
+    async def spa_set_target_temp(self, device_id: str, target_temp: int) -> None:
         """Set the target temperature on a spa device."""
         if (cached_state := self._state_cache.get(device_id)) is None:
             raise WavespaException(f"Device '{device_id}' is not recognised")

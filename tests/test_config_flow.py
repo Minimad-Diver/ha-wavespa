@@ -51,6 +51,7 @@ def bypass_setup_fixture():
     ):
         yield
 
+
 @pytest.fixture(autouse=True)
 def verify_cleanup() -> Generator[None]:
     """Override verify_cleanup to tolerate the _run_safe_shutdown_loop thread.
@@ -66,6 +67,7 @@ def verify_cleanup() -> Generator[None]:
     for thread in frozenset(threading.enumerate()) - threads_before:
         if thread.daemon:
             thread.join(timeout=2.0)
+
 
 # Simiulate a successful config flow.
 async def test_successful_config_flow(hass, bypass_get_data):

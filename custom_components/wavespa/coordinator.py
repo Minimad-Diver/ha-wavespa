@@ -19,12 +19,14 @@ _LOGGER = getLogger(__name__)
 class WavespaUpdateCoordinator(DataUpdateCoordinator[WavespaApiResults]):
     """Update coordinator that polls the device status for all devices in an account."""
 
-    def __init__(self, hass: HomeAssistant, config_entry: ConfigEntry, api: WavespaApi) -> None:
+    def __init__(
+        self, hass: HomeAssistant, config_entry: ConfigEntry, api: WavespaApi
+    ) -> None:
         """Initialize my coordinator."""
         super().__init__(
             hass,
             _LOGGER,
-			config_entry=config_entry,
+            config_entry=config_entry,
             name="Wavespa API",
             update_interval=timedelta(seconds=30),
         )
@@ -42,11 +44,10 @@ class WavespaUpdateCoordinator(DataUpdateCoordinator[WavespaApiResults]):
         async with asyncio.timeout(10):
             try:
                 await self.api.refresh_bindings()
-            except Exception as e:
-                # Log the error if necessary or just pass to silently ignore
-                # You can log it with your logging system like:
-                # _LOGGER.error(f"Failed to refresh bindings: {e}")
-                pass  # Ignore failures on refresh_bindings
+            except Exception as ex:  # pylint: disable=broad-except
+                # A failed device-list refresh shouldn't block the status
+                # fetch below, which can still serve the known devices.
+                _LOGGER.warning("Failed to refresh device list: %s", ex)
 
             return await self.api.fetch_data()
 
