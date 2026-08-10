@@ -26,12 +26,12 @@ _SPA_CONNECTIVITY_SENSOR_DESCRIPTION = BinarySensorEntityDescription(
     key="spa_connected",
     device_class=BinarySensorDeviceClass.CONNECTIVITY,
     entity_category=EntityCategory.DIAGNOSTIC,
-    name="Spa Connected",
+    name="Connected",
 )
 
 _SPA_ERRORS_SENSOR_DESCRIPTION = BinarySensorEntityDescription(
     key="spa_has_error",
-    name="Spa Errors",
+    name="Errors",
     device_class=BinarySensorDeviceClass.PROBLEM,
 )
 

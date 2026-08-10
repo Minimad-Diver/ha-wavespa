@@ -151,6 +151,34 @@ class TestSpaSetHeat:
         assert _attrs(api)["Bubble"] == 1
 
 
+class TestMergeDeviceAttrs:
+    """merge_device_attrs applies a partial delta without losing other fields."""
+
+    async def test_merge_preserves_unmentioned_fields(self) -> None:
+        api = _make_api({"Heater": 1, "Filter": 1, "Time_filter": 5000})
+        api.merge_device_attrs(_DEVICE_ID, {"Heater": 0})
+        attrs = _attrs(api)
+        assert attrs["Heater"] == 0
+        assert attrs["Filter"] == 1
+        assert attrs["Time_filter"] == 5000
+
+    async def test_merge_creates_entry_for_unknown_device(self) -> None:
+        api = _make_api()
+        api.merge_device_attrs("new_device", {"Heater": 1})
+        assert api.cached_results().devices["new_device"].attrs == {"Heater": 1}
+
+    async def test_merge_refreshes_timestamp(self) -> None:
+        api = _make_api()
+        assert api.cached_results().devices[_DEVICE_ID].timestamp == 1000
+        api.merge_device_attrs(_DEVICE_ID, {"Heater": 1})
+        assert api.cached_results().devices[_DEVICE_ID].timestamp > 1000
+
+    async def test_cached_results_exposes_every_device(self) -> None:
+        api = _make_api()
+        api.merge_device_attrs("second_device", {"Heater": 1})
+        assert set(api.cached_results().devices) == {_DEVICE_ID, "second_device"}
+
+
 class TestSpaSetPower:
     """spa_set_power is the master switch and clears everything on off."""
 

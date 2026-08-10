@@ -20,7 +20,6 @@ class Icon(str, Enum):
     BUBBLES = "mdi:chart-bubble"
     FILTER = "mdi:image-filter-tilt-shift"
     HARDWARE = "mdi:chip"
-    JETS = "mdi:turbine"
     POWER = "mdi:power"
     PROTOCOL = "mdi:protocol"
     SOFTWARE = "mdi:application-braces"

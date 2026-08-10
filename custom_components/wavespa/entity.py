@@ -14,6 +14,11 @@ from .const import DOMAIN
 class WavespaEntity(CoordinatorEntity[WavespaUpdateCoordinator]):
     """Wavespa base entity type."""
 
+    # Entity names are relative to the device, so Home Assistant composes the
+    # displayed name as "<spa alias> <entity name>". This also keeps entity IDs
+    # distinct when more than one spa is set up.
+    _attr_has_entity_name = True
+
     def __init__(
         self,
         coordinator: WavespaUpdateCoordinator,

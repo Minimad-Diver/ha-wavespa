@@ -11,7 +11,6 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .wavespa.api import WavespaApi, WavespaApiResults
-from .wavespa.model import WavespaDeviceStatus
 
 _LOGGER = getLogger(__name__)
 
@@ -73,23 +72,17 @@ class WavespaUpdateCoordinator(DataUpdateCoordinator[WavespaApiResults]):
             return
 
         # A WebSocket s2c_noti delta only contains the fields that changed,
-        # not the full device state. Merge it onto the existing cached attrs
-        # so unmentioned fields (e.g. Time_filter, or any control field an
-        # entity reads) keep their last known value instead of vanishing and
+        # not the full device state. Merging it onto the existing cached attrs
+        # keeps unmentioned fields (e.g. Time_filter, or any control field an
+        # entity reads) at their last known value instead of vanishing and
         # causing KeyErrors or dropped readings.
-        existing = self.api._state_cache.get(device_id)
-        merged_attrs = {**existing.attrs, **attrs} if existing else dict(attrs)
-
-        self.api._state_cache[device_id] = WavespaDeviceStatus(
-            timestamp=int(time()),
-            attrs=merged_attrs,
-        )
+        self.api.merge_device_attrs(device_id, attrs)
 
         # Track last WebSocket update time for this device
         self._ws_last_update[device_id] = time()
 
         # Trigger immediate entity updates
-        self.async_set_updated_data(WavespaApiResults(self.api._state_cache))
+        self.async_set_updated_data(self.api.cached_results())
 
     def handle_websocket_disconnect(self) -> None:
         """Handle WebSocket disconnection.

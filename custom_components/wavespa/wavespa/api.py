@@ -237,6 +237,24 @@ class WavespaApi:
 
         return WavespaApiResults(self._state_cache)
 
+    def cached_results(self) -> WavespaApiResults:
+        """Return a snapshot of the cached state for every known device."""
+        return WavespaApiResults(self._state_cache)
+
+    def merge_device_attrs(self, device_id: str, attrs: dict[str, Any]) -> None:
+        """
+        Merge a partial attribute delta into a device's cached state.
+
+        Push updates only carry the fields that changed, so unmentioned fields
+        keep their last known value rather than vanishing.
+        """
+        existing = self._state_cache.get(device_id)
+        merged_attrs = {**existing.attrs, **attrs} if existing else dict(attrs)
+        self._state_cache[device_id] = WavespaDeviceStatus(
+            timestamp=int(time()),
+            attrs=merged_attrs,
+        )
+
     async def spa_set_power(self, device_id: str, power: bool) -> None:
         """Turn the spa on/off."""
         if (cached_state := self._state_cache.get(device_id)) is None:

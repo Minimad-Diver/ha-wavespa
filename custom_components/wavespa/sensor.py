@@ -56,6 +56,24 @@ def _estimate_watts(status: WavespaDeviceStatus | None) -> int:
     return watts
 
 
+class EstimatedAssumptionsMixin:
+    """Exposes the wattage assumptions behind the estimated sensors.
+
+    Both estimated sensors derive their value from the same constants, so they
+    report the same assumptions to let users check the numbers.
+    """
+
+    @property
+    def extra_state_attributes(self) -> dict[str, int | str]:
+        """Return the assumptions used by this estimated sensor."""
+        return {
+            "calculation": "estimated",
+            "heater_watts": ESTIMATED_HEATER_WATTS,
+            "bubbles_watts": ESTIMATED_BUBBLES_WATTS,
+            "filter_watts": ESTIMATED_FILTER_WATTS,
+        }
+
+
 @dataclass
 class DeviceSensorDescription:
     """An entity description with a function that describes how to derive a value."""
@@ -236,7 +254,7 @@ class FilterPercentSensor(WavespaEntity, SensorEntity):
         return None
 
 
-class EstimatedPowerSensor(WavespaEntity, SensorEntity):
+class EstimatedPowerSensor(EstimatedAssumptionsMixin, WavespaEntity, SensorEntity):
     """Estimated instantaneous power consumption for a spa.
 
     This is not measured power. It is a best-effort estimate based on
@@ -267,18 +285,8 @@ class EstimatedPowerSensor(WavespaEntity, SensorEntity):
             return None
         return _estimate_watts(self.status)
 
-    @property
-    def extra_state_attributes(self) -> dict[str, int | str]:
-        """Return the assumptions used by this estimated sensor."""
-        return {
-            "calculation": "estimated",
-            "heater_watts": ESTIMATED_HEATER_WATTS,
-            "bubbles_watts": ESTIMATED_BUBBLES_WATTS,
-            "filter_watts": ESTIMATED_FILTER_WATTS,
-        }
 
-
-class EstimatedEnergySensor(WavespaEntity, RestoreSensor):
+class EstimatedEnergySensor(EstimatedAssumptionsMixin, WavespaEntity, RestoreSensor):
     """Estimated cumulative energy consumption for a spa.
 
     Integrates EstimatedPowerSensor's wattage over time (left-rectangle
@@ -355,13 +363,3 @@ class EstimatedEnergySensor(WavespaEntity, RestoreSensor):
     def native_value(self) -> float:
         """Return the accumulated estimated energy in kWh."""
         return round(self._energy_kwh, 3)
-
-    @property
-    def extra_state_attributes(self) -> dict[str, int | str]:
-        """Return the assumptions used by this estimated sensor."""
-        return {
-            "calculation": "estimated",
-            "heater_watts": ESTIMATED_HEATER_WATTS,
-            "bubbles_watts": ESTIMATED_BUBBLES_WATTS,
-            "filter_watts": ESTIMATED_FILTER_WATTS,
-        }
