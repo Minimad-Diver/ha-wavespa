@@ -111,8 +111,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     disconnect_callback=coordinator.handle_websocket_disconnect,
                 )
 
-                # Connect in background
-                hass.async_create_task(ws_client.connect())
+                # Connect in background, reconnecting for as long as we run
+                hass.async_create_task(ws_client.async_run())
 
                 # Reduce polling now that WebSocket will provide real-time updates
                 coordinator.set_websocket_active()
