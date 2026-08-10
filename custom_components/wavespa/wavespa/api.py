@@ -254,7 +254,12 @@ class WavespaApi:
             cached_state.attrs["Bubble"] = 0
 
     async def spa_set_filter(self, device_id: str, filtering: bool) -> None:
-        """Turn the filter pump on/off on a spa device."""
+        """
+        Turn the filter pump on/off on a spa device.
+
+        Turning the filter pump off will also turn off the heater, which cannot
+        run without it. The bubbles are independent and are left alone.
+        """
         if (cached_state := self._state_cache.get(device_id)) is None:
             raise WavespaException(f"Device '{device_id}' is not recognised")
 
@@ -263,10 +268,7 @@ class WavespaApi:
         await self._do_control_post(device_id, Filter=api_value)
         cached_state.timestamp = int(time())
         cached_state.attrs["Filter"] = api_value
-        if filtering:
-            cached_state.attrs["Filter"] = 1
-        else:
-            cached_state.attrs["Bubble"] = 0
+        if not filtering:
             cached_state.attrs["Heater"] = 0
 
     async def spa_set_heat(self, device_id: str, heat: bool) -> None:
@@ -298,7 +300,12 @@ class WavespaApi:
         cached_state.attrs["Temperature_setup"] = target_temp
 
     async def spa_set_bubbles(self, device_id: str, bubbles: bool) -> None:
-        """Turn the bubbles on/off on a spa device."""
+        """
+        Turn the bubbles on/off on a spa device.
+
+        The bubbles are independent of the heater and filter pump, so no other
+        cached attribute is changed.
+        """
         if (cached_state := self._state_cache.get(device_id)) is None:
             raise WavespaException(f"Device '{device_id}' is not recognised")
 
@@ -307,8 +314,6 @@ class WavespaApi:
         await self._do_control_post(device_id, Bubble=api_value)
         cached_state.timestamp = int(time())
         cached_state.attrs["Bubble"] = api_value
-        if bubbles:
-            cached_state.attrs["Heater"] = 1
 
     async def _do_get(self, url: str) -> dict[str, Any]:
         """Make an API call to the specified URL, returning the response as a JSON object."""
