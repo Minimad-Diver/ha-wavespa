@@ -136,9 +136,9 @@ class TestSwitchOptimistic:
         from custom_components.wavespa.switch import WavespaSwitchEntityDescription
 
         return WavespaSwitchEntityDescription(
-            key="Heater",
-            name="Heater",
-            value_fn=lambda s: bool(s.attrs["Heater"]),
+            key="Filter",
+            name="Filter",
+            value_fn=lambda s: bool(s.attrs["Filter"]),
             turn_on_fn=AsyncMock(),
             turn_off_fn=AsyncMock(),
         )
@@ -161,7 +161,7 @@ class TestSwitchOptimistic:
         from custom_components.wavespa.switch import WavespaSwitch
 
         device = _make_device()
-        status = _make_status({"Heater": 0})
+        status = _make_status({"Filter": 0})
         coordinator = _make_coordinator(device, status)
         config_entry = MagicMock()
 
@@ -169,7 +169,7 @@ class TestSwitchOptimistic:
             coordinator, config_entry, "test_device", self._make_desc()
         )
 
-        # Before toggle: switch reads from coordinator (Heater=0 -> off)
+        # Before toggle: switch reads from coordinator (Filter=0 -> off)
         assert switch.is_on is False
 
         # Set optimistic state directly (mirrors what async_turn_on does)
@@ -181,8 +181,8 @@ class TestSwitchOptimistic:
         from custom_components.wavespa.switch import WavespaSwitch
 
         device = _make_device()
-        # Real data agrees with the optimistic value (Heater=1 -> on)
-        status = _make_status({"Heater": 1})
+        # Real data agrees with the optimistic value (Filter=1 -> on)
+        status = _make_status({"Filter": 1})
         coordinator = _make_coordinator(device, status)
         config_entry = MagicMock()
 
@@ -209,8 +209,8 @@ class TestSwitchOptimistic:
         from custom_components.wavespa.switch import WavespaSwitch
 
         device = _make_device()
-        # Real data still shows the OLD value (Heater=0 -> off)
-        status = _make_status({"Heater": 0})
+        # Real data still shows the OLD value (Filter=0 -> off)
+        status = _make_status({"Filter": 0})
         coordinator = _make_coordinator(device, status)
         config_entry = MagicMock()
 

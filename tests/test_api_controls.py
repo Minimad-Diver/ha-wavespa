@@ -177,23 +177,3 @@ class TestMergeDeviceAttrs:
         api = _make_api()
         api.merge_device_attrs("second_device", {"Heater": 1})
         assert set(api.cached_results().devices) == {_DEVICE_ID, "second_device"}
-
-
-class TestSpaSetPower:
-    """spa_set_power is the master switch and clears everything on off."""
-
-    async def test_off_clears_all_functions(self) -> None:
-        api = _make_api({"Heater": 1, "Filter": 1, "Bubble": 1})
-        await api.spa_set_power(_DEVICE_ID, False)
-        _post(api).assert_awaited_once_with(_DEVICE_ID, Heater=0)
-        assert _attrs(api)["Heater"] == 0
-        assert _attrs(api)["Filter"] == 0
-        assert _attrs(api)["Bubble"] == 0
-
-    async def test_on_only_sets_heater(self) -> None:
-        api = _make_api({"Heater": 0, "Filter": 0, "Bubble": 0})
-        await api.spa_set_power(_DEVICE_ID, True)
-        _post(api).assert_awaited_once_with(_DEVICE_ID, Heater=1)
-        assert _attrs(api)["Heater"] == 1
-        assert _attrs(api)["Filter"] == 0
-        assert _attrs(api)["Bubble"] == 0

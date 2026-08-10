@@ -29,15 +29,6 @@ class WavespaSwitchEntityDescription(SwitchEntityDescription):
     turn_off_fn: Callable[[WavespaApi, str], Awaitable[None]]
 
 
-_SPA_POWER_SWITCH = WavespaSwitchEntityDescription(
-    key="Heater",
-    name="Heater",
-    icon=Icon.POWER,
-    value_fn=lambda s: bool(s.attrs["Heater"]),
-    turn_on_fn=lambda api, device_id: api.spa_set_power(device_id, True),
-    turn_off_fn=lambda api, device_id: api.spa_set_power(device_id, False),
-)
-
 _SPA_FILTER_SWITCH = WavespaSwitchEntityDescription(
     key="Filter",
     name="Filter",
@@ -74,12 +65,6 @@ async def async_setup_entry(
         ]:
             entities.extend(
                 [
-                    WavespaSwitch(
-                        coordinator,
-                        config_entry,
-                        device_id,
-                        _SPA_POWER_SWITCH,
-                    ),
                     WavespaSwitch(
                         coordinator,
                         config_entry,

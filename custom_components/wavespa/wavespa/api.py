@@ -255,22 +255,6 @@ class WavespaApi:
             attrs=merged_attrs,
         )
 
-    async def spa_set_power(self, device_id: str, power: bool) -> None:
-        """Turn the spa on/off."""
-        if (cached_state := self._state_cache.get(device_id)) is None:
-            raise WavespaException(f"Device '{device_id}' is not recognised")
-
-        api_value = 1 if power else 0
-        _LOGGER.debug("Setting power to %s", "ON" if power else "OFF")
-        await self._do_control_post(device_id, Heater=api_value)
-        cached_state.timestamp = int(time())
-        cached_state.attrs["Heater"] = api_value
-        if not power:
-            # When powering off, all other functions also turn off
-            cached_state.attrs["Filter"] = 0
-            cached_state.attrs["Heater"] = 0
-            cached_state.attrs["Bubble"] = 0
-
     async def spa_set_filter(self, device_id: str, filtering: bool) -> None:
         """
         Turn the filter pump on/off on a spa device.
