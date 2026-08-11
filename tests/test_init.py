@@ -1,6 +1,8 @@
 """Test wavespa setup process."""
 
+import asyncio
 from datetime import datetime, timedelta
+from typing import Any
 from unittest.mock import patch
 
 from homeassistant.core import HomeAssistant
@@ -8,7 +10,8 @@ from homeassistant.config_entries import ConfigEntryState
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.wavespa import WavespaUpdateCoordinator
-from custom_components.wavespa.wavespa.model import WavespaUserToken
+from custom_components.wavespa.wavespa.api import WavespaApi, WavespaApiResults
+from custom_components.wavespa.wavespa.model import WavespaDevice, WavespaUserToken
 from custom_components.wavespa.const import (
     CONF_API_ROOT,
     CONF_API_ROOT_EU,
@@ -18,6 +21,18 @@ from custom_components.wavespa.const import (
     CONF_USER_TOKEN_EXPIRY,
     CONF_USERNAME,
     DOMAIN,
+)
+
+_DEVICE = WavespaDevice(
+    protocol_version=1,
+    device_id="did",
+    product_name="Wave Spa",
+    alias="Spa",
+    mcu_soft_version="1",
+    mcu_hard_version="1",
+    wifi_soft_version="1",
+    wifi_hard_version="1",
+    is_online=True,
 )
 
 
@@ -69,6 +84,81 @@ async def test_setup_unload_and_reload_entry(hass: HomeAssistant, bypass_get_dat
     # Unload the entry and verify that the data has been removed
     assert await hass.config_entries.async_unload(config_entry.entry_id)
     assert config_entry.entry_id not in hass.data[DOMAIN]
+
+
+class _FakeWebSocket:
+    """Stand-in for GizwitsWebSocket that records its own lifecycle."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        self.started = False
+        self.cancelled = False
+        self.disconnected = False
+
+    async def async_run(self) -> None:
+        """Keep running until cancelled, like the real supervisor."""
+        self.started = True
+        try:
+            while True:
+                await asyncio.sleep(0.01)
+        except asyncio.CancelledError:
+            self.cancelled = True
+            raise
+
+    async def disconnect(self) -> None:
+        """Record the graceful shutdown."""
+        self.disconnected = True
+
+
+async def test_websocket_task_is_cancelled_on_unload(hass: HomeAssistant):
+    """Test the WebSocket supervisor doesn't outlive the config entry.
+
+    The task used to be untracked, so a reload left the old client
+    reconnecting forever alongside the new one.
+    """
+    future = (datetime.now() + timedelta(days=31)).timestamp()
+    config_entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_USERNAME: "test@example.org",
+            CONF_PASSWORD: "P@asw0rd",
+            CONF_API_ROOT: CONF_API_ROOT_EU,
+            CONF_USER_TOKEN: "t0k3n",
+            CONF_USER_TOKEN_EXPIRY: int(future),
+            CONF_UID: "uid",
+        },
+        version=2,
+        entry_id="test",
+    )
+    config_entry.add_to_hass(hass)
+
+    fake_ws = _FakeWebSocket()
+
+    async def populate_devices(self: WavespaApi) -> None:
+        """Give the entry a device, so the WebSocket client gets built."""
+        self.devices = {"did": _DEVICE}
+
+    async def fetch_cached(self: WavespaApi) -> WavespaApiResults:
+        """Serve the empty state cache instead of calling the API."""
+        return self.cached_results()
+
+    with (
+        patch.object(WavespaApi, "refresh_bindings", populate_devices),
+        patch.object(WavespaApi, "fetch_data", fetch_cached),
+        patch("custom_components.wavespa.GizwitsWebSocket", return_value=fake_ws),
+    ):
+        await hass.config_entries.async_setup(config_entry.entry_id)
+
+        # Deliberately not async_block_till_done() - a background task is
+        # exactly the thing that doesn't block it, and an untracked one would
+        # hang here rather than failing an assertion.
+        await asyncio.sleep(0.05)
+        assert fake_ws.started
+
+        assert await hass.config_entries.async_unload(config_entry.entry_id)
+        await asyncio.sleep(0.05)
+
+    assert fake_ws.disconnected
+    assert fake_ws.cancelled
 
 
 async def test_setup_entry_expired_token(hass: HomeAssistant, bypass_get_data):

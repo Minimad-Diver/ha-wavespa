@@ -111,8 +111,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     disconnect_callback=coordinator.handle_websocket_disconnect,
                 )
 
-                # Connect in background, reconnecting for as long as we run
-                hass.async_create_task(ws_client.async_run())
+                # Run the supervisor for as long as the entry is loaded. Using
+                # a tracked background task means HA cancels it on unload -
+                # an untracked task would keep reconnecting after a reload,
+                # leaving a zombie client behind for every reload.
+                entry.async_create_background_task(
+                    hass,
+                    ws_client.async_run(),
+                    f"{DOMAIN}-{entry.entry_id}-websocket",
+                )
 
                 # Reduce polling now that WebSocket will provide real-time updates
                 coordinator.set_websocket_active()
