@@ -8,9 +8,10 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-from .wavespa.api import WavespaApi, WavespaApiResults
+from .wavespa.api import WavespaApi, WavespaApiResults, WavespaAuthException
 
 _LOGGER = getLogger(__name__)
 
@@ -40,15 +41,25 @@ class WavespaUpdateCoordinator(DataUpdateCoordinator[WavespaApiResults]):
         This is the place to pre-process the data to lookup tables
         so entities can quickly look up their data.
         """
-        async with asyncio.timeout(10):
-            try:
-                await self.api.refresh_bindings()
-            except Exception as ex:  # pylint: disable=broad-except
-                # A failed device-list refresh shouldn't block the status
-                # fetch below, which can still serve the known devices.
-                _LOGGER.warning("Failed to refresh device list: %s", ex)
+        try:
+            async with asyncio.timeout(10):
+                try:
+                    await self.api.refresh_bindings()
+                except WavespaAuthException:
+                    # An expired or revoked token won't fix itself, so this
+                    # one isn't swallowed with the rest.
+                    raise
+                except Exception as ex:  # pylint: disable=broad-except
+                    # A failed device-list refresh shouldn't block the status
+                    # fetch below, which can still serve the known devices.
+                    _LOGGER.warning("Failed to refresh device list: %s", ex)
 
-            return await self.api.fetch_data()
+                return await self.api.fetch_data()
+        except WavespaAuthException as ex:
+            # Raising this is what starts HA's reauth flow. Letting it escape
+            # as a generic error would become UpdateFailed instead, leaving
+            # the user with permanently unavailable entities and no prompt.
+            raise ConfigEntryAuthFailed from ex
 
     def handle_websocket_update(self, device_id: str, attrs: dict[str, Any]) -> None:
         """Handle real-time device update from WebSocket.
