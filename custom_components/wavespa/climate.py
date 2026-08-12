@@ -27,6 +27,11 @@ _CLIMATE_FEATURES = (
 )
 
 
+# Entity state comes from the coordinator, so updates are not per-entity
+# polling and do not need serialising.
+PARALLEL_UPDATES = 0
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
