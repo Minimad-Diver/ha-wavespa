@@ -151,6 +151,74 @@ class TestSpaSetHeat:
         assert _attrs(api)["Bubble"] == 1
 
 
+class TestControlWritesSurviveConcurrentPush:
+    """A WebSocket delta landing mid-POST must not swallow the local write.
+
+    merge_device_attrs() replaces the cached status object rather than mutating
+    it, so a setter that captured the entry *before* awaiting its POST would
+    write to an orphaned object and lose the change. These tests simulate a
+    push arriving during the POST by mutating the cache from inside the stubbed
+    request.
+    """
+
+    @staticmethod
+    def _api_with_push_during_post(push: dict[str, Any]) -> WavespaApi:
+        """Build an API whose control POST triggers a WebSocket-style push."""
+        api = _make_api({"Heater": 0, "Filter": 0, "Bubble": 0})
+
+        async def post_then_push(*args: Any, **kwargs: Any) -> None:
+            api.merge_device_attrs(_DEVICE_ID, push)
+
+        api._do_control_post = AsyncMock(  # type: ignore[method-assign]
+            side_effect=post_then_push
+        )
+        return api
+
+    async def test_target_temp_survives_push(self) -> None:
+        """Target temperature has no optimistic overlay, so losing it is visible."""
+        api = self._api_with_push_during_post({"Current_temperature": 31})
+
+        await api.spa_set_target_temp(_DEVICE_ID, 38)
+
+        attrs = _attrs(api)
+        assert attrs["Temperature_setup"] == 38
+        # The concurrent push is preserved too - neither write clobbers the other
+        assert attrs["Current_temperature"] == 31
+
+    async def test_filter_switch_survives_push(self) -> None:
+        api = self._api_with_push_during_post({"Current_temperature": 31})
+
+        await api.spa_set_filter(_DEVICE_ID, True)
+
+        assert _attrs(api)["Filter"] == 1
+        assert _attrs(api)["Current_temperature"] == 31
+
+    async def test_heater_side_effect_survives_push(self) -> None:
+        """The implied Filter=1 must survive as well as the Heater write."""
+        api = self._api_with_push_during_post({"Current_temperature": 31})
+
+        await api.spa_set_heat(_DEVICE_ID, True)
+
+        attrs = _attrs(api)
+        assert attrs["Heater"] == 1
+        assert attrs["Filter"] == 1
+
+    async def test_bubbles_survive_push(self) -> None:
+        api = self._api_with_push_during_post({"Current_temperature": 31})
+
+        await api.spa_set_bubbles(_DEVICE_ID, True)
+
+        assert _attrs(api)["Bubble"] == 1
+
+    async def test_local_write_wins_over_stale_push_of_same_field(self) -> None:
+        """The command we just sent is newer than a push describing the old state."""
+        api = self._api_with_push_during_post({"Filter": 0})
+
+        await api.spa_set_filter(_DEVICE_ID, True)
+
+        assert _attrs(api)["Filter"] == 1
+
+
 class TestMergeDeviceAttrs:
     """merge_device_attrs applies a partial delta without losing other fields."""
 

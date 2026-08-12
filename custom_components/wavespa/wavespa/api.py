@@ -245,8 +245,14 @@ class WavespaApi:
         """
         Merge a partial attribute delta into a device's cached state.
 
-        Push updates only carry the fields that changed, so unmentioned fields
-        keep their last known value rather than vanishing.
+        Used both for WebSocket pushes, which only carry the fields that
+        changed, and for the optimistic writes the ``spa_set_*`` methods make
+        after a control POST. Unmentioned fields keep their last known value
+        rather than vanishing.
+
+        The cache entry is replaced rather than mutated in place, and is looked
+        up fresh on every call, so callers must not hold a reference across an
+        await and write to it afterwards - see ``_apply_control_result``.
         """
         existing = self._state_cache.get(device_id)
         merged_attrs = {**existing.attrs, **attrs} if existing else dict(attrs)
@@ -255,6 +261,24 @@ class WavespaApi:
             attrs=merged_attrs,
         )
 
+    def _require_known_device(self, device_id: str) -> None:
+        """Raise unless we hold cached state for the given device."""
+        if device_id not in self._state_cache:
+            raise WavespaException(f"Device '{device_id}' is not recognised")
+
+    def _apply_control_result(self, device_id: str, attrs: dict[str, Any]) -> None:
+        """Record the effect of a control POST in the local state cache.
+
+        Deliberately re-reads the cache instead of reusing the entry the caller
+        looked up before awaiting the POST. A WebSocket delta arriving while
+        that POST was in flight replaces the cached object via
+        merge_device_attrs(), so writing to the pre-await reference would land
+        on an orphan and silently drop the change we just made - most visibly
+        for target temperature, which has no optimistic overlay in the UI to
+        paper over it.
+        """
+        self.merge_device_attrs(device_id, attrs)
+
     async def spa_set_filter(self, device_id: str, filtering: bool) -> None:
         """
         Turn the filter pump on/off on a spa device.
@@ -262,16 +286,16 @@ class WavespaApi:
         Turning the filter pump off will also turn off the heater, which cannot
         run without it. The bubbles are independent and are left alone.
         """
-        if (cached_state := self._state_cache.get(device_id)) is None:
-            raise WavespaException(f"Device '{device_id}' is not recognised")
+        self._require_known_device(device_id)
 
         api_value = 1 if filtering else 0
         _LOGGER.debug("Setting filter mode to %s", "ON" if filtering else "OFF")
         await self._do_control_post(device_id, Filter=api_value)
-        cached_state.timestamp = int(time())
-        cached_state.attrs["Filter"] = api_value
+
+        updates: dict[str, Any] = {"Filter": api_value}
         if not filtering:
-            cached_state.attrs["Heater"] = 0
+            updates["Heater"] = 0
+        self._apply_control_result(device_id, updates)
 
     async def spa_set_heat(self, device_id: str, heat: bool) -> None:
         """
@@ -279,27 +303,26 @@ class WavespaApi:
 
         Turning the heater on will also turn on the filter pump.
         """
-        if (cached_state := self._state_cache.get(device_id)) is None:
-            raise WavespaException(f"Device '{device_id}' is not recognised")
+        self._require_known_device(device_id)
 
         api_value = 1 if heat else 0
         _LOGGER.debug("Setting heater mode to %s", "ON" if heat else "OFF")
         await self._do_control_post(device_id, Heater=api_value)
-        cached_state.timestamp = int(time())
-        cached_state.attrs["Heater"] = api_value
+
+        updates: dict[str, Any] = {"Heater": api_value}
         if heat:
-            cached_state.attrs["Filter"] = 1
+            updates["Filter"] = 1
+        self._apply_control_result(device_id, updates)
 
     async def spa_set_target_temp(self, device_id: str, target_temp: int) -> None:
         """Set the target temperature on a spa device."""
-        if (cached_state := self._state_cache.get(device_id)) is None:
-            raise WavespaException(f"Device '{device_id}' is not recognised")
+        self._require_known_device(device_id)
 
         target_temp = int(target_temp)
         _LOGGER.debug("Setting target temperature to %d", target_temp)
         await self._do_control_post(device_id, Temperature_setup=target_temp)
-        cached_state.timestamp = int(time())
-        cached_state.attrs["Temperature_setup"] = target_temp
+
+        self._apply_control_result(device_id, {"Temperature_setup": target_temp})
 
     async def spa_set_bubbles(self, device_id: str, bubbles: bool) -> None:
         """
@@ -308,14 +331,13 @@ class WavespaApi:
         The bubbles are independent of the heater and filter pump, so no other
         cached attribute is changed.
         """
-        if (cached_state := self._state_cache.get(device_id)) is None:
-            raise WavespaException(f"Device '{device_id}' is not recognised")
+        self._require_known_device(device_id)
 
         api_value = 1 if bubbles else 0
         _LOGGER.debug("Setting bubbles mode to %s", "ON" if bubbles else "OFF")
         await self._do_control_post(device_id, Bubble=api_value)
-        cached_state.timestamp = int(time())
-        cached_state.attrs["Bubble"] = api_value
+
+        self._apply_control_result(device_id, {"Bubble": api_value})
 
     async def _do_get(self, url: str) -> dict[str, Any]:
         """Make an API call to the specified URL, returning the response as a JSON object."""
