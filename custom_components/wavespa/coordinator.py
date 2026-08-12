@@ -15,6 +15,12 @@ from .wavespa.api import WavespaApi, WavespaApiResults, WavespaAuthException
 
 _LOGGER = getLogger(__name__)
 
+# How often to poll the cloud API when it's the only source of state, and the
+# slower rate used once the WebSocket is delivering pushes and polling is just
+# a safety net.
+_POLL_INTERVAL = timedelta(seconds=30)
+_WEBSOCKET_POLL_INTERVAL = timedelta(seconds=300)
+
 
 class WavespaUpdateCoordinator(DataUpdateCoordinator[WavespaApiResults]):
     """Update coordinator that polls the device status for all devices in an account."""
@@ -28,7 +34,7 @@ class WavespaUpdateCoordinator(DataUpdateCoordinator[WavespaApiResults]):
             _LOGGER,
             config_entry=config_entry,
             name="Wavespa API",
-            update_interval=timedelta(seconds=30),
+            update_interval=_POLL_INTERVAL,
         )
         self.api = api
         self._ws_last_update: dict[str, float] = {}  # Track WebSocket update times
@@ -102,8 +108,11 @@ class WavespaUpdateCoordinator(DataUpdateCoordinator[WavespaApiResults]):
         WebSocket connection is lost. This ensures the integration
         continues functioning reliably even without real-time updates.
         """
+        if self.update_interval == _POLL_INTERVAL:
+            return
+
         _LOGGER.warning("WebSocket disconnected, reverting to 30-second polling")
-        self.update_interval = timedelta(seconds=30)
+        self.update_interval = _POLL_INTERVAL
 
     def set_websocket_active(self) -> None:
         """Set polling interval for WebSocket-active mode.
@@ -111,6 +120,14 @@ class WavespaUpdateCoordinator(DataUpdateCoordinator[WavespaApiResults]):
         Reduces polling frequency to 5 minutes when WebSocket is providing
         real-time updates. Polling continues as a safety net to catch any
         missed updates or handle WebSocket connection issues.
+
+        Called on every successful connection, not just the first, so that
+        polling drops back down again after the feed recovers from an outage.
+        A flapping connection would otherwise log on every attempt, so the
+        message is only emitted when the interval actually changes.
         """
+        if self.update_interval == _WEBSOCKET_POLL_INTERVAL:
+            return
+
         _LOGGER.info("WebSocket active, reducing polling to 5-minute intervals")
-        self.update_interval = timedelta(seconds=300)
+        self.update_interval = _WEBSOCKET_POLL_INTERVAL

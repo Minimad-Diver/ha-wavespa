@@ -161,6 +161,70 @@ async def test_websocket_task_is_cancelled_on_unload(hass: HomeAssistant):
     assert fake_ws.cancelled
 
 
+async def test_polling_slows_only_once_websocket_connects(hass: HomeAssistant):
+    """Test the slow polling interval is tied to the WebSocket actually connecting.
+
+    Setup used to drop straight to 5-minute polling on the assumption the
+    WebSocket would connect. A spa that never managed to connect was then left
+    with neither pushes nor timely polling.
+    """
+    future = (datetime.now() + timedelta(days=31)).timestamp()
+    config_entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_USERNAME: "test@example.org",
+            CONF_PASSWORD: "P@asw0rd",
+            CONF_API_ROOT: CONF_API_ROOT_EU,
+            CONF_USER_TOKEN: "t0k3n",
+            CONF_USER_TOKEN_EXPIRY: int(future),
+            CONF_UID: "uid",
+        },
+        version=2,
+        entry_id="test",
+    )
+    config_entry.add_to_hass(hass)
+
+    fake_ws = _FakeWebSocket()
+
+    async def populate_devices(self: WavespaApi) -> None:
+        self.devices = {"did": _DEVICE}
+
+    async def fetch_cached(self: WavespaApi) -> WavespaApiResults:
+        return self.cached_results()
+
+    with (
+        patch.object(WavespaApi, "refresh_bindings", populate_devices),
+        patch.object(WavespaApi, "fetch_data", fetch_cached),
+        patch(
+            "custom_components.wavespa.GizwitsWebSocket", return_value=fake_ws
+        ) as ws_cls,
+    ):
+        await hass.config_entries.async_setup(config_entry.entry_id)
+
+        coordinator = hass.data[DOMAIN][config_entry.entry_id]
+
+        # Nothing has connected yet, so polling is still the only live source
+        assert coordinator.update_interval == timedelta(seconds=30)
+
+        # The client is wired to tell the coordinator when that changes
+        callbacks = ws_cls.call_args.kwargs
+        connect_callback = callbacks["connect_callback"]
+        assert connect_callback == coordinator.set_websocket_active
+
+        connect_callback()
+        assert coordinator.update_interval == timedelta(seconds=300)
+
+        # A drop and recovery round trip, driven through the same wiring
+        callbacks["disconnect_callback"]()
+        assert coordinator.update_interval == timedelta(seconds=30)
+
+        connect_callback()
+        assert coordinator.update_interval == timedelta(seconds=300)
+
+        assert await hass.config_entries.async_unload(config_entry.entry_id)
+        await asyncio.sleep(0.05)
+
+
 async def test_setup_entry_expired_token(hass: HomeAssistant, bypass_get_data):
     """Test what happens when the auth token needs to be refreshed."""
 

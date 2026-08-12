@@ -109,6 +109,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     ws_port=first_device.ws_port,
                     update_callback=coordinator.handle_websocket_update,
                     disconnect_callback=coordinator.handle_websocket_disconnect,
+                    connect_callback=coordinator.set_websocket_active,
                 )
 
                 # Run the supervisor for as long as the entry is loaded. Using
@@ -121,9 +122,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     f"{DOMAIN}-{entry.entry_id}-websocket",
                 )
 
-                # Reduce polling now that WebSocket will provide real-time updates
-                coordinator.set_websocket_active()
-
+                # Polling deliberately stays at its default rate here. The
+                # client's connect callback slows it down once the feed is
+                # actually live; reducing it eagerly would leave a spa that
+                # never manages to connect on 5-minute polling with no push
+                # updates to make up the difference.
                 _LOGGER.info("WebSocket client initialized")
             else:
                 _LOGGER.warning("No devices found, WebSocket not initialized")

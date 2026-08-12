@@ -39,6 +39,7 @@ class GizwitsWebSocket:
         ws_port: int,
         update_callback: Callable[[str, dict[str, Any]], None],
         disconnect_callback: Callable[[], None] | None = None,
+        connect_callback: Callable[[], None] | None = None,
     ) -> None:
         """Initialize WebSocket client.
 
@@ -49,12 +50,15 @@ class GizwitsWebSocket:
             ws_port: WebSocket port (from device bindings response)
             update_callback: Called with (device_id, attrs) on device updates
             disconnect_callback: Called on connection loss (optional)
+            connect_callback: Called once the feed is live, including after
+                every successful reconnect (optional)
         """
         self._uid = uid
         self._token = token
         self._ws_url = f"wss://{ws_host}:{ws_port}/ws/app/v1"
         self._update_callback = update_callback
         self._disconnect_callback = disconnect_callback
+        self._connect_callback = connect_callback
 
         self._websocket: Any = None
         self._heartbeat_task: asyncio.Task[Any] | None = None
@@ -82,6 +86,7 @@ class GizwitsWebSocket:
                 await self.connect()
                 was_connected = True
                 self._reconnect_count = 0
+                self._notify_connected()
                 await self._listen_loop()
             except Exception as ex:  # pylint: disable=broad-except
                 _LOGGER.warning("WebSocket connection attempt failed: %s", ex)
@@ -218,6 +223,22 @@ class GizwitsWebSocket:
         ]
         self._reconnect_count += 1
         return delay
+
+    def _notify_connected(self) -> None:
+        """Tell the coordinator the real-time feed is live.
+
+        Fired after every successful connection, not just the first. Without
+        this, a single dropped connection would leave the coordinator stuck on
+        its disconnected fallback interval for as long as the entry stayed
+        loaded, because nothing else ever tells it the feed came back.
+        """
+        if self._connect_callback is None:
+            return
+
+        try:
+            self._connect_callback()
+        except Exception as ex:  # pylint: disable=broad-except
+            _LOGGER.error("Error in connect callback: %s", ex)
 
     def _notify_disconnected(self) -> None:
         """Tell the coordinator the real-time feed has dropped."""

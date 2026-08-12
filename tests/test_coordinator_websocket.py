@@ -114,6 +114,65 @@ async def test_coordinator_set_websocket_active(hass: HomeAssistant):
 
 
 @pytest.mark.asyncio
+async def test_polling_returns_to_slow_rate_after_reconnect(hass: HomeAssistant):
+    """Test a recovered WebSocket restores the 5-minute polling interval.
+
+    set_websocket_active() used to be called once at setup only, so the first
+    dropped connection pinned polling at 30 seconds until the entry was
+    reloaded - hammering the cloud API ten times more often than intended even
+    though pushes had resumed.
+    """
+    config_entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_API_ROOT: CONF_API_ROOT_EU},
+        entry_id="test",
+    )
+
+    api = MagicMock(spec=WavespaApi)
+    coordinator = WavespaUpdateCoordinator(hass, config_entry, api)
+
+    coordinator.set_websocket_active()
+    assert coordinator.update_interval == timedelta(seconds=300)
+
+    coordinator.handle_websocket_disconnect()
+    assert coordinator.update_interval == timedelta(seconds=30)
+
+    # The feed comes back
+    coordinator.set_websocket_active()
+    assert coordinator.update_interval == timedelta(seconds=300)
+
+    # And survives a second outage cycle
+    coordinator.handle_websocket_disconnect()
+    coordinator.set_websocket_active()
+    assert coordinator.update_interval == timedelta(seconds=300)
+
+
+@pytest.mark.asyncio
+async def test_repeated_interval_changes_are_idempotent(hass: HomeAssistant):
+    """Test re-announcing the same state doesn't churn the interval.
+
+    A flapping connection can call these repeatedly; each should settle on the
+    same interval rather than depending on how many times it was called.
+    """
+    config_entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_API_ROOT: CONF_API_ROOT_EU},
+        entry_id="test",
+    )
+
+    api = MagicMock(spec=WavespaApi)
+    coordinator = WavespaUpdateCoordinator(hass, config_entry, api)
+
+    for _ in range(3):
+        coordinator.set_websocket_active()
+    assert coordinator.update_interval == timedelta(seconds=300)
+
+    for _ in range(3):
+        coordinator.handle_websocket_disconnect()
+    assert coordinator.update_interval == timedelta(seconds=30)
+
+
+@pytest.mark.asyncio
 async def test_multi_device_websocket_updates(hass: HomeAssistant):
     """Test WebSocket updates work correctly with multiple devices."""
     config_entry = MockConfigEntry(

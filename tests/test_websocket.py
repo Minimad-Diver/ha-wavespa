@@ -259,6 +259,63 @@ async def test_disconnect_callback_exception_handling():
 
 
 @pytest.mark.asyncio
+async def test_connect_callback_fires_on_every_reconnect():
+    """Test the connect callback announces recovery, not just the first connect.
+
+    Only firing this once meant a single dropped connection left the
+    coordinator on its disconnected fallback polling interval for the rest of
+    the entry's life, because nothing ever told it the feed had come back.
+    """
+    connect_callback = MagicMock()
+    ws = _make_ws(connect_callback=connect_callback)
+
+    drops: list[int] = []
+
+    async def listen_then_drop():
+        drops.append(1)
+        if len(drops) >= 3:
+            ws._close_event.set()
+
+    with patch.object(ws, "connect", new=AsyncMock()):
+        with patch.object(ws, "_listen_loop", side_effect=listen_then_drop):
+            with patch.object(ws, "_wait_before_retry", new=AsyncMock()):
+                await ws.async_run()
+
+    # Connected three times, so the coordinator heard about it three times
+    assert connect_callback.call_count == 3
+
+
+@pytest.mark.asyncio
+async def test_connect_callback_not_fired_when_connect_fails():
+    """Test a failed connection attempt doesn't claim the feed is live."""
+    connect_callback = MagicMock()
+    ws = _make_ws(connect_callback=connect_callback)
+
+    attempts: list[int] = []
+
+    async def failing_connect():
+        attempts.append(1)
+        if len(attempts) >= 3:
+            ws._close_event.set()
+        raise OSError("Connection refused")
+
+    with patch.object(ws, "connect", side_effect=failing_connect):
+        with patch.object(ws, "_wait_before_retry", new=AsyncMock()):
+            await ws.async_run()
+
+    connect_callback.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_connect_callback_exception_handling():
+    """Test that a failing connect callback doesn't stop the supervisor."""
+    ws = _make_ws(connect_callback=MagicMock(side_effect=Exception("boom")))
+
+    # Should not raise
+    ws._notify_connected()
+
+
+@pytest.mark.asyncio
 async def test_websocket_device_update():
     """Test device update message handling."""
     updates_received = []
