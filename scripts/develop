@@ -10,6 +10,16 @@ if [[ ! -d "${PWD}/config" ]]; then
     hass --config "${PWD}/config" --script ensure_config
 fi
 
+# config/configuration.yaml is tracked in git, so config/ already exists after a
+# clone and the branch above never runs. Even when it does, ensure_config returns
+# early once configuration.yaml is present and writes nothing else. Either way the
+# files configuration.yaml !includes are never created, and Home Assistant refuses
+# to start with "Unable to read file .../automations.yaml".
+mkdir -p "${PWD}/config/themes"
+[[ -f "${PWD}/config/automations.yaml" ]] || echo "[]" > "${PWD}/config/automations.yaml"
+[[ -f "${PWD}/config/scripts.yaml" ]] || : > "${PWD}/config/scripts.yaml"
+[[ -f "${PWD}/config/scenes.yaml" ]] || : > "${PWD}/config/scenes.yaml"
+
 # Set the path to custom_components
 ## This let's us have the structure we want <root>/custom_components/integration_blueprint
 ## while at the same time have Home Assistant configuration inside <root>/config
