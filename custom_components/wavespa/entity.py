@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from . import WavespaUpdateCoordinator
+from .coordinator import WavespaUpdateCoordinator
 from .wavespa.model import WavespaDevice, WavespaDeviceStatus
 from .const import DOMAIN
 

@@ -11,9 +11,9 @@ from typing import Any
 from homeassistant.components.switch import SwitchEntity, SwitchEntityDescription
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import WavespaUpdateCoordinator
+from .coordinator import WavespaUpdateCoordinator
 from .wavespa.api import WavespaApi
 from .wavespa.model import WavespaDeviceStatus, WavespaDeviceType
 from .const import DOMAIN, Icon
@@ -51,7 +51,7 @@ _SPA_BUBBLES_SWITCH = WavespaSwitchEntityDescription(
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up switch entities."""
     coordinator: WavespaUpdateCoordinator = hass.data[DOMAIN][config_entry.entry_id]

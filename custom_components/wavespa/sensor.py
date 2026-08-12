@@ -17,12 +17,12 @@ from homeassistant.components.sensor import (
 from homeassistant.const import UnitOfEnergy, UnitOfPower
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity import EntityCategory
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.const import EntityCategory
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 from homeassistant.util import dt as dt_util
 
-from . import WavespaUpdateCoordinator
+from .coordinator import WavespaUpdateCoordinator
 from .const import DOMAIN, Icon
 from .entity import WavespaEntity
 from .wavespa.model import WavespaDevice, WavespaDeviceStatus, WavespaDeviceType
@@ -89,7 +89,7 @@ class DeviceSensorDescription:
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Add sensors for passed config_entry in HA."""
     coordinator: WavespaUpdateCoordinator = hass.data[DOMAIN][config_entry.entry_id]

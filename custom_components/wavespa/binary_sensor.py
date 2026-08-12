@@ -14,10 +14,10 @@ from homeassistant.components.binary_sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import EntityCategory
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.const import EntityCategory
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import WavespaUpdateCoordinator
+from .coordinator import WavespaUpdateCoordinator
 from .wavespa.model import WavespaDeviceType
 from .const import DOMAIN
 from .entity import WavespaEntity
@@ -39,7 +39,7 @@ _SPA_ERRORS_SENSOR_DESCRIPTION = BinarySensorEntityDescription(
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up binary sensor entities."""
     coordinator: WavespaUpdateCoordinator = hass.data[DOMAIN][config_entry.entry_id]
