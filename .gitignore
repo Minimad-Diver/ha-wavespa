@@ -4,6 +4,8 @@ config/*
 pythonenv*
 venv
 .venv
+.venv-test/
 .coverage
 .idea
 .claude/settings.json
+*.stackdump
