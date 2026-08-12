@@ -131,6 +131,70 @@ class TestEstimatedPowerSensor:
             ESTIMATED_HEATER_WATTS + ESTIMATED_FILTER_WATTS + ESTIMATED_BUBBLES_WATTS
         )
 
+    def test_heater_enabled_at_target_draws_nothing(self):
+        """A heater sitting at its target is not drawing power.
+
+        Heater == 1 only means heating is *enabled*. The element cycles off on
+        reaching the target, which is where a spa spends most of its day, so
+        billing the full load throughout added roughly 43 kWh a day of fiction
+        to the Energy dashboard.
+        """
+        sensor = self._make_sensor(
+            {
+                "Heater": 1,
+                "Filter": 0,
+                "Bubble": 0,
+                "Current_temperature": 40,
+                "Temperature_setup": 40,
+            }
+        )
+        assert sensor.native_value == 0
+
+    def test_heater_enabled_above_target_draws_nothing(self):
+        """An overshoot past the target is still not drawing power."""
+        sensor = self._make_sensor(
+            {
+                "Heater": 1,
+                "Filter": 0,
+                "Bubble": 0,
+                "Current_temperature": 41,
+                "Temperature_setup": 40,
+            }
+        )
+        assert sensor.native_value == 0
+
+    def test_heater_enabled_below_target_draws_full_load(self):
+        """Actively heating still bills the full element load."""
+        sensor = self._make_sensor(
+            {
+                "Heater": 1,
+                "Filter": 0,
+                "Bubble": 0,
+                "Current_temperature": 39,
+                "Temperature_setup": 40,
+            }
+        )
+        assert sensor.native_value == ESTIMATED_HEATER_WATTS
+
+    def test_heater_at_target_still_counts_other_loads(self):
+        """Only the heater is dropped - the pump and bubbles keep drawing."""
+        sensor = self._make_sensor(
+            {
+                "Heater": 1,
+                "Filter": 1,
+                "Bubble": 1,
+                "Current_temperature": 40,
+                "Temperature_setup": 40,
+            }
+        )
+        assert sensor.native_value == (ESTIMATED_FILTER_WATTS + ESTIMATED_BUBBLES_WATTS)
+
+    def test_missing_temperature_omits_heater(self):
+        """A gap in the readings under-reports rather than inventing consumption."""
+        sensor = self._make_sensor({"Heater": 1, "Filter": 1, "Bubble": 0})
+        sensor.status.attrs.pop("Temperature_setup")
+        assert sensor.native_value == ESTIMATED_FILTER_WATTS
+
     def test_native_value_none_when_no_status(self):
         """Returns None when the coordinator has no status for the device."""
         sensor = self._make_sensor(None)

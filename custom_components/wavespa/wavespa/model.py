@@ -59,6 +59,23 @@ class WavespaDeviceStatus:
         percent = 100 - ((raw / _TIME_FILTER_MAX) * 100)
         return max(0, min(100, int(percent)))
 
+    @property
+    def is_heating(self) -> bool | None:
+        """Return whether the heating element is actually drawing power.
+
+        The spa reports Heater == 1 whenever heating is *enabled*, including
+        while it sits at temperature doing nothing, so the target has to be
+        checked too. Returns None if any of the three readings are missing.
+        """
+        heat_on = self.attrs.get("Heater")
+        target = self.attrs.get("Temperature_setup")
+        current = self.attrs.get("Current_temperature")
+        if heat_on is None or target is None or current is None:
+            return None
+        # Use >= for "reached" so an overshoot (e.g. 41 °C against a 40 °C
+        # target) still counts, rather than heating indefinitely.
+        return bool(heat_on) and int(current) < int(target)
+
 
 @dataclass
 class WavespaDevice:

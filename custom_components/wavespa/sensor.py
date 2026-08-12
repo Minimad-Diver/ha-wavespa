@@ -40,8 +40,12 @@ def _estimate_watts(status: WavespaDeviceStatus | None) -> int:
     attrs = status.attrs
     watts = 0
 
-    # Heater is active when Heater == 1.
-    if int(attrs.get("Heater") or 0) == 1:
+    # Heater == 1 only means heating is enabled - the element cycles off once
+    # the spa reaches its target, which is exactly when a spa spends most of
+    # its day. Billing the full load throughout added roughly 43 kWh a day of
+    # fiction to the Energy dashboard. Missing readings count as not heating,
+    # so a gap under-reports rather than invents consumption.
+    if status.is_heating:
         watts += ESTIMATED_HEATER_WATTS
 
     # Filter pump is active when Filter == 1.
