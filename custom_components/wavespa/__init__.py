@@ -110,6 +110,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: WavespaConfigEntry) -> b
                     update_callback=coordinator.handle_websocket_update,
                     disconnect_callback=coordinator.handle_websocket_disconnect,
                     connect_callback=coordinator.set_websocket_active,
+                    online_status_callback=coordinator.handle_websocket_online_status,
                 )
 
                 # Run the supervisor for as long as the entry is loaded. Using

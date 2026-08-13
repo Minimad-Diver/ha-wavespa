@@ -81,11 +81,24 @@ class WavespaEntity(CoordinatorEntity[WavespaUpdateCoordinator]):
     def available(self) -> bool:
         """Return True if entity is available.
 
-        Note: is_online from the Gizwits API is unreliable and
-        frequently returns false even when the device is functioning and
-        controllable via the app. The API continues to return valid state
-        data regardless of this flag. We therefore only check that the
-        coordinator has data and the device is known.
+        is_online is trusted. It was previously ignored here, because on the
+        polling-only integration it frequently read false for a spa that was
+        working and controllable from the app - the API kept serving state
+        regardless, so honouring the flag made entities vanish for no reason.
 
+        With the WebSocket connected the flag is reported directly by the
+        server as it changes, rather than inferred from whatever a bindings
+        poll happened to catch, and it is reliable. Reporting unavailable is
+        also the honest answer: when the spa is off the network the cached
+        attributes are stale, and showing them as live state is worse than
+        showing nothing.
+
+        The connectivity binary sensor deliberately overrides this - it has to
+        stay available in order to report that the spa is offline.
         """
-        return self.coordinator.last_update_success and self.wavespa_device is not None
+        device = self.wavespa_device
+        return (
+            self.coordinator.last_update_success
+            and device is not None
+            and device.is_online
+        )

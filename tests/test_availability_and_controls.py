@@ -85,11 +85,13 @@ class TestEntityAvailability:
         entity = WavespaEntity(coordinator, config_entry, "test_device")
         assert entity.available is True
 
-    def test_available_when_offline(self):
-        """Entity is available even when is_online is False.
+    def test_unavailable_when_offline(self):
+        """An offline spa reports unavailable rather than stale state.
 
-        This is the core fix: the Gizwits API reports is_online=False
-        unreliably, but the device data is still valid.
+        is_online used to be ignored here, because on the polling-only
+        integration it read false for spas that were plainly working. With the
+        WebSocket reporting it directly it is trusted, and showing cached
+        attributes as though they were live is worse than showing nothing.
         """
         from custom_components.wavespa.entity import WavespaEntity
 
@@ -98,7 +100,26 @@ class TestEntityAvailability:
         config_entry = MagicMock()
 
         entity = WavespaEntity(coordinator, config_entry, "test_device")
-        assert entity.available is True
+        assert entity.available is False
+
+    def test_connectivity_sensor_stays_available_when_offline(self):
+        """The sensor reporting the outage must not itself go unavailable."""
+        from custom_components.wavespa.binary_sensor import (
+            _SPA_CONNECTIVITY_SENSOR_DESCRIPTION,
+            DeviceConnectivitySensor,
+        )
+
+        device = _make_device(is_online=False)
+        coordinator = _make_coordinator(device, _make_status())
+
+        sensor = DeviceConnectivitySensor(
+            coordinator,
+            MagicMock(),
+            "test_device",
+            _SPA_CONNECTIVITY_SENSOR_DESCRIPTION,
+        )
+        assert sensor.available is True
+        assert sensor.is_on is False
 
     def test_unavailable_when_no_device(self):
         """Entity is unavailable when device is not in coordinator."""

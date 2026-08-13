@@ -280,6 +280,19 @@ class WavespaApi:
         """Return a snapshot of the cached state for every known device."""
         return WavespaApiResults(self._state_cache)
 
+    def set_device_online(self, device_id: str, is_online: bool) -> bool:
+        """Record a device going on or offline, returning True if it changed.
+
+        The bindings response carries this flag, but only as often as we poll.
+        The WebSocket reports it the moment it changes, so this lets the push
+        keep it current between polls.
+        """
+        device = self.devices.get(device_id)
+        if device is None or device.is_online == is_online:
+            return False
+        device.is_online = is_online
+        return True
+
     def _local_write_is_recent(self, device_id: str) -> bool:
         """Return True if fresher-than-poll data arrived within the settle window."""
         written_at = self._fresh_writes.get(device_id)

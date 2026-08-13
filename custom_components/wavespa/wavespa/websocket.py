@@ -63,6 +63,7 @@ class GizwitsWebSocket:
         update_callback: Callable[[str, dict[str, Any]], None],
         disconnect_callback: Callable[[], None] | None = None,
         connect_callback: Callable[[], None] | None = None,
+        online_status_callback: Callable[[str, bool], None] | None = None,
     ) -> None:
         """Initialize WebSocket client.
 
@@ -75,6 +76,8 @@ class GizwitsWebSocket:
             disconnect_callback: Called on connection loss (optional)
             connect_callback: Called once the feed is live, including after
                 every successful reconnect (optional)
+            online_status_callback: Called with (device_id, is_online) when the
+                server reports a device going on or offline (optional)
         """
         self._uid = uid
         self._token = token
@@ -82,6 +85,7 @@ class GizwitsWebSocket:
         self._update_callback = update_callback
         self._disconnect_callback = disconnect_callback
         self._connect_callback = connect_callback
+        self._online_status_callback = online_status_callback
 
         self._websocket: Any = None
         self._heartbeat_task: asyncio.Task[Any] | None = None
@@ -341,14 +345,7 @@ class GizwitsWebSocket:
 
                     elif cmd == "s2c_online_status":
                         # Device online/offline notification
-                        device_data = data.get("data", {})
-                        device_id = device_data.get("did")
-                        is_online = device_data.get("is_online")
-                        _LOGGER.debug(
-                            "Device %s is now %s",
-                            _mask(device_id),
-                            "online" if is_online else "offline",
-                        )
+                        self._handle_online_status(data)
 
                     elif cmd == "s2c_invalid_msg":
                         # Invalid message error from server
@@ -370,6 +367,30 @@ class GizwitsWebSocket:
             raise
         except Exception as ex:  # pylint: disable=broad-except
             _LOGGER.error("WebSocket listen error: %s", ex)
+
+    def _handle_online_status(self, data: dict[str, Any]) -> None:
+        """Process an s2c_online_status notification.
+
+        The server reports this the moment a device drops or returns, which is
+        far fresher than waiting for the next bindings poll to notice.
+        """
+        device_data = data.get("data", {})
+        device_id = device_data.get("did")
+        is_online = bool(device_data.get("is_online"))
+
+        _LOGGER.debug(
+            "Device %s is now %s",
+            _mask(device_id),
+            "online" if is_online else "offline",
+        )
+
+        if not device_id or self._online_status_callback is None:
+            return
+
+        try:
+            self._online_status_callback(device_id, is_online)
+        except Exception as ex:  # pylint: disable=broad-except
+            _LOGGER.error("Error in online status callback: %s", ex)
 
     def _handle_device_update(self, data: dict[str, Any]) -> None:
         """Process device status update notification.

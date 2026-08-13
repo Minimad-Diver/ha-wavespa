@@ -2,7 +2,7 @@
 
 from datetime import timedelta
 from time import time
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant.core import HomeAssistant
@@ -23,6 +23,8 @@ def _make_api(*device_ids: str) -> WavespaApi:
     """
     api = WavespaApi(session=AsyncMock(), user_token="token", api_root="http://api")
     api.devices = {device_id: MagicMock() for device_id in device_ids}
+    for device in api.devices.values():
+        device.is_online = True
     return api
 
 
@@ -260,3 +262,56 @@ async def test_coordinator_tracks_websocket_update_times(hass: HomeAssistant):
     # Verify time updated
     new_update_time = coordinator._ws_last_update["device1"]
     assert new_update_time > update_time
+
+
+@pytest.mark.asyncio
+async def test_online_status_push_updates_the_device(hass: HomeAssistant):
+    """An s2c_online_status push moves the flag immediately.
+
+    It used to be logged and discarded, so the flag only changed when a
+    bindings refresh happened to notice - up to a full polling interval after
+    the spa had actually dropped.
+    """
+    config_entry = MockConfigEntry(
+        domain=DOMAIN, data={CONF_API_ROOT: CONF_API_ROOT_EU}, entry_id="test"
+    )
+    api = _make_api("device1")
+    api.devices["device1"].is_online = True
+    coordinator = WavespaUpdateCoordinator(hass, config_entry, api)
+
+    coordinator.handle_websocket_online_status("device1", False)
+    assert api.devices["device1"].is_online is False
+
+    coordinator.handle_websocket_online_status("device1", True)
+    assert api.devices["device1"].is_online is True
+
+
+@pytest.mark.asyncio
+async def test_online_status_push_for_unknown_device_is_ignored(hass: HomeAssistant):
+    config_entry = MockConfigEntry(
+        domain=DOMAIN, data={CONF_API_ROOT: CONF_API_ROOT_EU}, entry_id="test"
+    )
+    api = _make_api("device1")
+    coordinator = WavespaUpdateCoordinator(hass, config_entry, api)
+
+    # Must not raise, and must not invent a device
+    coordinator.handle_websocket_online_status("nope", False)
+    assert "nope" not in api.devices
+
+
+@pytest.mark.asyncio
+async def test_unchanged_online_status_does_not_notify(hass: HomeAssistant):
+    """A repeated push for the same state should not churn entity updates."""
+    config_entry = MockConfigEntry(
+        domain=DOMAIN, data={CONF_API_ROOT: CONF_API_ROOT_EU}, entry_id="test"
+    )
+    api = _make_api("device1")
+    api.devices["device1"].is_online = True
+    coordinator = WavespaUpdateCoordinator(hass, config_entry, api)
+
+    with patch.object(coordinator, "async_set_updated_data") as notify:
+        coordinator.handle_websocket_online_status("device1", True)
+        notify.assert_not_called()
+
+        coordinator.handle_websocket_online_status("device1", False)
+        notify.assert_called_once()
