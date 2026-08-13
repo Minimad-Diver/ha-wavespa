@@ -94,9 +94,7 @@ class TestEstimatedPowerSensor:
         status = _make_status(attrs) if attrs is not None else None
         coordinator = _make_coordinator(device, status)
         config_entry = MagicMock()
-        return EstimatedPowerSensor(
-            coordinator, config_entry, "test_device", name="Estimated Power"
-        )
+        return EstimatedPowerSensor(coordinator, config_entry, "test_device")
 
     def test_no_loads_active(self):
         """No wattage is reported when nothing is running."""
@@ -225,9 +223,7 @@ class TestEstimatedEnergySensor:
         status = _make_status(attrs if attrs is not None else {})
         coordinator = _make_coordinator(device, status)
         config_entry = MagicMock()
-        return EstimatedEnergySensor(
-            coordinator, config_entry, "test_device", name="Estimated Energy"
-        )
+        return EstimatedEnergySensor(coordinator, config_entry, "test_device")
 
     def test_initial_native_value_is_zero(self):
         """A fresh sensor reports 0 kWh before any update or restore."""

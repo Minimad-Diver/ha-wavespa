@@ -23,7 +23,6 @@ from homeassistant.helpers.typing import StateType
 from homeassistant.util import dt as dt_util
 
 from .coordinator import WavespaConfigEntry, WavespaUpdateCoordinator
-from .const import Icon
 from .entity import WavespaEntity
 from .wavespa.model import WavespaDevice, WavespaDeviceStatus, WavespaDeviceType
 
@@ -120,13 +119,11 @@ async def async_setup_entry(
                         coordinator,
                         config_entry,
                         device_id,
-                        name="Estimated Power",
                     ),
                     EstimatedEnergySensor(
                         coordinator,
                         config_entry,
                         device_id,
-                        name="Estimated Energy",
                     ),
                 ]
             )
@@ -140,8 +137,7 @@ async def async_setup_entry(
                     sensor_description=DeviceSensorDescription(
                         SensorEntityDescription(
                             key="protocol_version",
-                            name="Protocol Version",
-                            icon=Icon.PROTOCOL,
+                            translation_key="protocol_version",
                             entity_category=EntityCategory.DIAGNOSTIC,
                         ),
                         lambda device: device.protocol_version,
@@ -154,8 +150,7 @@ async def async_setup_entry(
                     sensor_description=DeviceSensorDescription(
                         SensorEntityDescription(
                             key="mcu_soft_version",
-                            name="MCU Software Version",
-                            icon=Icon.SOFTWARE,
+                            translation_key="mcu_soft_version",
                             entity_category=EntityCategory.DIAGNOSTIC,
                         ),
                         lambda device: device.mcu_soft_version,
@@ -168,8 +163,7 @@ async def async_setup_entry(
                     sensor_description=DeviceSensorDescription(
                         SensorEntityDescription(
                             key="mcu_hard_version",
-                            name="MCU Hardware Version",
-                            icon=Icon.HARDWARE,
+                            translation_key="mcu_hard_version",
                             entity_category=EntityCategory.DIAGNOSTIC,
                         ),
                         lambda device: device.mcu_hard_version,
@@ -182,8 +176,7 @@ async def async_setup_entry(
                     sensor_description=DeviceSensorDescription(
                         SensorEntityDescription(
                             key="wifi_soft_version",
-                            name="Wi-Fi Software Version",
-                            icon=Icon.SOFTWARE,
+                            translation_key="wifi_soft_version",
                             entity_category=EntityCategory.DIAGNOSTIC,
                         ),
                         lambda device: device.wifi_soft_version,
@@ -196,8 +189,7 @@ async def async_setup_entry(
                     sensor_description=DeviceSensorDescription(
                         SensorEntityDescription(
                             key="wifi_hard_version",
-                            name="Wi-Fi Hardware Version",
-                            icon=Icon.HARDWARE,
+                            translation_key="wifi_hard_version",
                             entity_category=EntityCategory.DIAGNOSTIC,
                         ),
                         lambda device: device.wifi_hard_version,
@@ -209,8 +201,7 @@ async def async_setup_entry(
                     device_id,
                     SensorEntityDescription(
                         key="percent_filter",
-                        name="Filter",
-                        icon=Icon.FILTER,
+                        translation_key="percent_filter",
                         entity_category=EntityCategory.DIAGNOSTIC,
                         native_unit_of_measurement="%",
                     ),
@@ -280,18 +271,17 @@ class EstimatedPowerSensor(EstimatedAssumptionsMixin, WavespaEntity, SensorEntit
     _attr_device_class = SensorDeviceClass.POWER
     _attr_native_unit_of_measurement = UnitOfPower.WATT
     _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_icon = "mdi:flash"
+
+    _attr_translation_key = "estimated_power"
 
     def __init__(
         self,
         coordinator: WavespaUpdateCoordinator,
         config_entry: WavespaConfigEntry,
         device_id: str,
-        name: str,
     ) -> None:
         """Initialize the estimated power sensor."""
         super().__init__(coordinator, config_entry, device_id)
-        self._attr_name = name
         self._attr_unique_id = f"{device_id}_estimated_power"
 
     @property
@@ -314,18 +304,17 @@ class EstimatedEnergySensor(EstimatedAssumptionsMixin, WavespaEntity, RestoreSen
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
     _attr_state_class = SensorStateClass.TOTAL_INCREASING
-    _attr_icon = "mdi:lightning-bolt"
+
+    _attr_translation_key = "estimated_energy"
 
     def __init__(
         self,
         coordinator: WavespaUpdateCoordinator,
         config_entry: WavespaConfigEntry,
         device_id: str,
-        name: str,
     ) -> None:
         """Initialize the estimated energy sensor."""
         super().__init__(coordinator, config_entry, device_id)
-        self._attr_name = name
         self._attr_unique_id = f"{device_id}_estimated_energy"
         self._energy_kwh = 0.0
         self._last_update: datetime | None = None

@@ -18,7 +18,6 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from .coordinator import WavespaConfigEntry, WavespaUpdateCoordinator
 from .wavespa.api import WavespaApi, WavespaException
 from .wavespa.model import WavespaDeviceStatus, WavespaDeviceType
-from .const import Icon
 from .entity import WavespaEntity
 
 
@@ -33,8 +32,7 @@ class WavespaSwitchEntityDescription(SwitchEntityDescription):
 
 _SPA_FILTER_SWITCH = WavespaSwitchEntityDescription(
     key="Filter",
-    name="Filter",
-    icon=Icon.FILTER,
+    translation_key="filter",
     value_fn=lambda s: s.flag("Filter"),
     turn_on_fn=lambda api, device_id: api.spa_set_filter(device_id, True),
     turn_off_fn=lambda api, device_id: api.spa_set_filter(device_id, False),
@@ -42,8 +40,7 @@ _SPA_FILTER_SWITCH = WavespaSwitchEntityDescription(
 
 _SPA_BUBBLES_SWITCH = WavespaSwitchEntityDescription(
     key="Bubble",
-    name="Bubbles",
-    icon=Icon.BUBBLES,
+    translation_key="bubbles",
     value_fn=lambda s: s.flag("Bubble"),
     turn_on_fn=lambda api, device_id: api.spa_set_bubbles(device_id, True),
     turn_off_fn=lambda api, device_id: api.spa_set_bubbles(device_id, False),

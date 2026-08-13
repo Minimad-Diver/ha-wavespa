@@ -28,5 +28,54 @@
       "wrong_account": "The credentials are for a different Wavespa account",
       "reauth_successful": "Re-authentication was successful"
     }
+  },
+  "entity": {
+    "binary_sensor": {
+      "spa_connected": {
+        "name": "Connected"
+      },
+      "spa_has_error": {
+        "name": "Errors"
+      }
+    },
+    "climate": {
+      "thermostat": {
+        "name": "Thermostat"
+      }
+    },
+    "sensor": {
+      "estimated_power": {
+        "name": "Estimated power"
+      },
+      "estimated_energy": {
+        "name": "Estimated energy"
+      },
+      "percent_filter": {
+        "name": "Filter"
+      },
+      "protocol_version": {
+        "name": "Protocol version"
+      },
+      "mcu_soft_version": {
+        "name": "MCU software version"
+      },
+      "mcu_hard_version": {
+        "name": "MCU hardware version"
+      },
+      "wifi_soft_version": {
+        "name": "Wi-Fi software version"
+      },
+      "wifi_hard_version": {
+        "name": "Wi-Fi hardware version"
+      }
+    },
+    "switch": {
+      "filter": {
+        "name": "Filter"
+      },
+      "bubbles": {
+        "name": "Bubbles"
+      }
+    }
   }
 }

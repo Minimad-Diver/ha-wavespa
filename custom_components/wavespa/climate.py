@@ -71,7 +71,7 @@ async def async_setup_entry(
 class WaveSpaThermostat(WavespaEntity, ClimateEntity):
     """A thermostat for WaveSpa devices."""
 
-    _attr_name = "Thermostat"
+    _attr_translation_key = "thermostat"
     _attr_supported_features = _CLIMATE_FEATURES
     _attr_hvac_modes = [HVACMode.OFF, HVACMode.HEAT]
     _attr_precision = PRECISION_WHOLE
