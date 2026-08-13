@@ -9,6 +9,8 @@ These tests cover:
 from unittest.mock import MagicMock, AsyncMock, patch
 from typing import Any
 
+import pytest
+
 from custom_components.wavespa.wavespa.model import (
     WavespaDevice,
     WavespaDeviceStatus,
@@ -138,7 +140,7 @@ class TestSwitchOptimistic:
         return WavespaSwitchEntityDescription(
             key="Filter",
             name="Filter",
-            value_fn=lambda s: bool(s.attrs["Filter"]),
+            value_fn=lambda s: s.flag("Filter"),
             turn_on_fn=AsyncMock(),
             turn_off_fn=AsyncMock(),
         )
@@ -230,6 +232,171 @@ class TestSwitchOptimistic:
 # ---------------------------------------------------------------------------
 # climate.py: temperature unit from device type
 # ---------------------------------------------------------------------------
+
+
+class TestServiceCallFailures:
+    """API failures must reach the user as HomeAssistantError.
+
+    Anything else surfaces as an unhandled traceback in the log with nothing
+    shown in the UI.
+    """
+
+    def _make_switch(self, turn_on_fn):
+        from custom_components.wavespa.switch import (
+            WavespaSwitch,
+            WavespaSwitchEntityDescription,
+        )
+
+        desc = WavespaSwitchEntityDescription(
+            key="Filter",
+            name="Filter",
+            value_fn=lambda s: s.flag("Filter"),
+            turn_on_fn=turn_on_fn,
+            turn_off_fn=AsyncMock(),
+        )
+        device = _make_device()
+        coordinator = _make_coordinator(device, _make_status({"Filter": 0}))
+        switch = WavespaSwitch(coordinator, MagicMock(), "test_device", desc)
+        switch.hass = MagicMock()
+        switch.async_write_ha_state = MagicMock()
+        switch.entity_id = "switch.test_filter"
+        return switch
+
+    async def test_switch_failure_raises_home_assistant_error(self):
+        from homeassistant.exceptions import HomeAssistantError
+
+        from custom_components.wavespa.wavespa.api import WavespaException
+
+        switch = self._make_switch(AsyncMock(side_effect=WavespaException("boom")))
+
+        with pytest.raises(HomeAssistantError, match="Failed to turn on"):
+            await switch.async_turn_on()
+
+    async def test_switch_failure_clears_optimistic_state(self):
+        """A command that demonstrably failed must not keep showing as applied."""
+        from custom_components.wavespa.wavespa.api import WavespaException
+
+        switch = self._make_switch(AsyncMock(side_effect=WavespaException("boom")))
+
+        with pytest.raises(Exception):
+            await switch.async_turn_on()
+
+        assert switch._optimistic_state is None
+        assert switch.is_on is False
+
+    async def test_climate_failure_raises_home_assistant_error(self):
+        from homeassistant.exceptions import HomeAssistantError
+
+        from custom_components.wavespa.climate import WaveSpaThermostat
+        from custom_components.wavespa.wavespa.api import WavespaException
+
+        device = _make_device()
+        coordinator = _make_coordinator(device, _make_status())
+        coordinator.api.spa_set_heat = AsyncMock(
+            side_effect=WavespaException("device offline")
+        )
+        thermostat = WaveSpaThermostat(coordinator, MagicMock(), "test_device")
+
+        with pytest.raises(HomeAssistantError, match="Failed to set the heating mode"):
+            from homeassistant.components.climate.const import HVACMode
+
+            await thermostat.async_set_hvac_mode(HVACMode.HEAT)
+
+    async def test_climate_set_temperature_failure_raises(self):
+        from homeassistant.const import ATTR_TEMPERATURE
+        from homeassistant.exceptions import HomeAssistantError
+
+        from custom_components.wavespa.climate import WaveSpaThermostat
+        from custom_components.wavespa.wavespa.api import WavespaException
+
+        device = _make_device()
+        coordinator = _make_coordinator(device, _make_status())
+        coordinator.api.spa_set_target_temp = AsyncMock(
+            side_effect=WavespaException("device offline")
+        )
+        thermostat = WaveSpaThermostat(coordinator, MagicMock(), "test_device")
+
+        with pytest.raises(
+            HomeAssistantError, match="Failed to set the target temperature"
+        ):
+            await thermostat.async_set_temperature(**{ATTR_TEMPERATURE: 38})
+
+
+class TestOptimisticExpiry:
+    """The expiry is a timer, not a check performed during coordinator updates.
+
+    Checking on update tied the deadline to the polling interval, which is five
+    minutes while the WebSocket is connected - so the ten seconds the constant
+    promised could be thirty times longer in practice.
+    """
+
+    def _make_switch(self):
+        from custom_components.wavespa.switch import (
+            WavespaSwitch,
+            WavespaSwitchEntityDescription,
+        )
+
+        desc = WavespaSwitchEntityDescription(
+            key="Filter",
+            name="Filter",
+            value_fn=lambda s: s.flag("Filter"),
+            turn_on_fn=AsyncMock(),
+            turn_off_fn=AsyncMock(),
+        )
+        device = _make_device()
+        coordinator = _make_coordinator(device, _make_status({"Filter": 0}))
+        switch = WavespaSwitch(coordinator, MagicMock(), "test_device", desc)
+        switch.hass = MagicMock()
+        switch.async_write_ha_state = MagicMock()
+        return switch
+
+    async def test_timer_is_armed_on_optimistic_set(self):
+        from custom_components.wavespa import switch as switch_module
+
+        switch = self._make_switch()
+        with patch.object(switch_module, "async_call_later") as call_later:
+            await switch.async_turn_on()
+
+        call_later.assert_called_once()
+        assert call_later.call_args[0][1] == switch._OPTIMISTIC_TIMEOUT_SECONDS
+
+    async def test_expiry_reveals_real_state(self):
+        """When the timer fires, the switch falls back to the device's value."""
+        switch = self._make_switch()
+        with patch("custom_components.wavespa.switch.async_call_later"):
+            await switch.async_turn_on()
+
+        assert switch.is_on is True  # optimistic
+        switch._expire_optimistic(None)
+        assert switch._optimistic_state is None
+        assert switch.is_on is False  # the device never applied it
+
+    async def test_confirmation_cancels_the_timer(self):
+        cancel = MagicMock()
+        switch = self._make_switch()
+        with patch(
+            "custom_components.wavespa.switch.async_call_later", return_value=cancel
+        ):
+            await switch.async_turn_on()
+
+        # Device confirms the change
+        switch.status.attrs["Filter"] = 1
+        switch._handle_coordinator_update()
+
+        assert switch._optimistic_state is None
+        cancel.assert_called_once()
+
+    async def test_removal_disarms_the_timer(self):
+        """A pending timer must not fire against a removed entity."""
+        cancel = MagicMock()
+        switch = self._make_switch()
+        with patch(
+            "custom_components.wavespa.switch.async_call_later", return_value=cancel
+        ):
+            await switch.async_turn_on()
+
+        await switch.async_will_remove_from_hass()
+        cancel.assert_called_once()
 
 
 class TestClimateTemperatureUnit:

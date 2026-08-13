@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
 from homeassistant.components.climate import ClimateEntity, ClimateEntityFeature
 from homeassistant.components.climate.const import ATTR_HVAC_MODE, HVACAction, HVACMode
 from homeassistant.const import ATTR_TEMPERATURE, PRECISION_WHOLE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import WavespaConfigEntry, WavespaUpdateCoordinator
+from .wavespa.api import WavespaException
 from .wavespa.model import WavespaDeviceType, as_int
 from .entity import WavespaEntity
 
@@ -23,6 +27,20 @@ _CLIMATE_FEATURES = (
     | ClimateEntityFeature.TURN_OFF
     | ClimateEntityFeature.TURN_ON
 )
+
+
+@contextmanager
+def _reporting_errors(action: str) -> Iterator[None]:
+    """Re-raise API failures as HomeAssistantError.
+
+    Home Assistant reports a HomeAssistantError from a service call as a
+    message to the user; anything else surfaces as an unhandled traceback in
+    the log with nothing shown in the UI.
+    """
+    try:
+        yield
+    except WavespaException as ex:
+        raise HomeAssistantError(f"Failed to {action}: {ex}") from ex
 
 
 # Entity state comes from the coordinator, so updates are not per-entity
@@ -153,7 +171,8 @@ class WaveSpaThermostat(WavespaEntity, ClimateEntity):
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         """Set new target hvac mode."""
         should_heat = hvac_mode == HVACMode.HEAT
-        await self.coordinator.api.spa_set_heat(self.device_id, should_heat)
+        with _reporting_errors("set the heating mode"):
+            await self.coordinator.api.spa_set_heat(self.device_id, should_heat)
         await self.coordinator.async_request_refresh()
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
@@ -162,11 +181,12 @@ class WaveSpaThermostat(WavespaEntity, ClimateEntity):
         if target_temperature is None:
             return
 
-        if hvac_mode := kwargs.get(ATTR_HVAC_MODE):
-            should_heat = hvac_mode == HVACMode.HEAT
-            await self.coordinator.api.spa_set_heat(self.device_id, should_heat)
+        with _reporting_errors("set the target temperature"):
+            if hvac_mode := kwargs.get(ATTR_HVAC_MODE):
+                should_heat = hvac_mode == HVACMode.HEAT
+                await self.coordinator.api.spa_set_heat(self.device_id, should_heat)
 
-        await self.coordinator.api.spa_set_target_temp(
-            self.device_id, target_temperature
-        )
+            await self.coordinator.api.spa_set_target_temp(
+                self.device_id, target_temperature
+            )
         await self.coordinator.async_request_refresh()
