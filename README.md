@@ -43,6 +43,59 @@ Ensure you can control your device using the Wavespa mobile app.
 - Go to **Configuration** > **Devices & Services** > **Add Integration**, then find **WaveSpa** in the list.
 - Enter your Wavespa username and password when prompted.
 
+If you picked the wrong API location, or your password changes, use
+**Reconfigure** on the integration rather than deleting and re-adding it —
+re-adding loses your device and entity history.
+
+## Entities
+
+Each spa gets:
+
+| Entity            | Type          | Notes                                          |
+| ----------------- | ------------- | ---------------------------------------------- |
+| Thermostat        | climate       | Target temperature, and heating on/off         |
+| Filter            | switch        | Filter pump. Turning it off also stops heating |
+| Bubbles           | switch        | Independent of the heater and pump             |
+| Errors            | binary sensor | On when the spa reports a fault                |
+| Connected         | binary sensor | The cloud API's view of the spa (diagnostic)   |
+| Filter            | sensor        | Remaining filter life, as a percentage         |
+| Estimated power   | sensor        | See below                                      |
+| Estimated energy  | sensor        | See below                                      |
+| Firmware versions | sensors       | MCU and Wi-Fi versions (diagnostic)            |
+
+### Estimated power and energy
+
+**These are modelled, not measured.** The spa has no power meter, so the
+integration infers consumption from which loads it reports as running:
+
+| Load        | Assumed draw |
+| ----------- | ------------ |
+| Heater      | 1800 W       |
+| Bubbles     | 600 W        |
+| Filter pump | 50 W         |
+
+Two details worth knowing:
+
+- The heater is only counted while the spa is **below its target
+  temperature**. `Heater = 1` on its own only means heating is *enabled*; the
+  element cycles off once the water is up to temperature, which is where a spa
+  spends most of its day.
+- If the spa is unreachable, no consumption is recorded for that period rather
+  than assuming it carried on at the last known rate.
+
+The defaults suit a typical 13 A EU spa. If yours differs — US models run at a
+different voltage — set your own figures under **Configure** on the
+integration. `Estimated energy` is a `total_increasing` kWh sensor, so it can
+be added to the Energy dashboard; just bear in mind the dashboard will then be
+showing an estimate.
+
+## Troubleshooting
+
+Before opening an issue, download diagnostics: on the integration page, use the
+three-dot menu next to your device and choose **Download diagnostics**. It
+contains the raw values your spa reports, which is usually what's needed to
+diagnose a problem, with credentials and identifiers redacted automatically.
+
 ## Acknowledgements
 
 - https://github.com/GraemeDBlue/ha-wavespa
