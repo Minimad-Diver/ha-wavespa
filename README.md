@@ -77,7 +77,7 @@ integration infers consumption from which loads it reports as running:
 Two details worth knowing:
 
 - The heater is only counted while the spa is **below its target
-  temperature**. `Heater = 1` on its own only means heating is *enabled*; the
+  temperature**. `Heater = 1` on its own only means heating is _enabled_; the
   element cycles off once the water is up to temperature, which is where a spa
   spends most of its day.
 - If the spa is unreachable, no consumption is recorded for that period rather

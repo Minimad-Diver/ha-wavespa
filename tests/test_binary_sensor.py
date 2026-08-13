@@ -112,7 +112,7 @@ class TestErrorMatching:
         assert sensor.is_on is True
 
     def test_unreadable_value_is_not_an_error(self) -> None:
-        """An unparseable reading must not invent a fault."""
+        """An unparsable reading must not invent a fault."""
         sensor = _make_errors_sensor({"E01": "unknown"})
         assert sensor.is_on is False
 

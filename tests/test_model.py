@@ -116,7 +116,7 @@ class TestFlag:
     def test_missing_is_none(self) -> None:
         assert _status().flag("Filter") is None
 
-    def test_unparseable_is_none(self) -> None:
+    def test_unparsable_is_none(self) -> None:
         assert _status(Filter="on").flag("Filter") is None
 
 
@@ -136,7 +136,7 @@ class TestPercentFilter:
         """Previously raised TypeError on a non-numeric type."""
         assert _status(Time_filter="10200").percent_filter == 0
 
-    def test_unparseable_is_none_not_raise(self) -> None:
+    def test_unparsable_is_none_not_raise(self) -> None:
         assert _status(Time_filter="unknown").percent_filter is None
 
     def test_clamped_beyond_range(self) -> None:
@@ -165,11 +165,11 @@ class TestIsHeatingValueCoercion:
         status = _status(Heater="0", Current_temperature="30", Temperature_setup="40")
         assert status.is_heating is False
 
-    def test_unparseable_heater_is_none(self) -> None:
+    def test_unparsable_heater_is_none(self) -> None:
         status = _status(Heater="yes", Current_temperature=30, Temperature_setup=40)
         assert status.is_heating is None
 
-    def test_unparseable_temperature_is_none(self) -> None:
+    def test_unparsable_temperature_is_none(self) -> None:
         status = _status(Heater=1, Current_temperature="warm", Temperature_setup=40)
         assert status.is_heating is None
 
