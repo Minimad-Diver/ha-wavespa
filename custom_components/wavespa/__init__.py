@@ -54,12 +54,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: WavespaConfigEntry) -> b
     uid = entry.data.get(CONF_UID)
 
     if user_token and expiry_cutoff < user_token_expiry and uid:
-        _LOGGER.info("Reusing existing access token")
+        _LOGGER.debug("Reusing existing access token")
     else:
         if not uid:
-            _LOGGER.info("UID missing, fetching new token to enable WebSocket")
+            _LOGGER.debug("UID missing, fetching new token to enable WebSocket")
         else:
-            _LOGGER.info("Requesting a new auth token")
+            _LOGGER.debug("Requesting a new auth token")
 
         try:
             token = await WavespaApi.get_user_token(
@@ -127,7 +127,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: WavespaConfigEntry) -> b
                 # actually live; reducing it eagerly would leave a spa that
                 # never manages to connect on 5-minute polling with no push
                 # updates to make up the difference.
-                _LOGGER.info("WebSocket client initialized")
+                _LOGGER.debug("WebSocket client initialized")
             else:
                 _LOGGER.warning("No devices found, WebSocket not initialized")
         except Exception as ex:  # pylint: disable=broad-except
@@ -135,7 +135,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: WavespaConfigEntry) -> b
                 "Failed to setup WebSocket, falling back to polling: %s", ex
             )
     else:
-        _LOGGER.info("No UID in config, WebSocket disabled (polling only)")
+        _LOGGER.debug("No UID in config, WebSocket disabled (polling only)")
 
     coordinator.websocket = ws_client
 

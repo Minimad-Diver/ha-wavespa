@@ -131,7 +131,7 @@ class DeviceErrorsSensor(WavespaEntity, BinarySensorEntity):
 
         # error properties
         for attr in self.status.attrs:
-            if re.match("system_err\\d+", attr):
+            if re.fullmatch(r"system_err\d+", attr):
                 errors[attr] = bool(self.status.attrs[attr])
 
         # ground fault
@@ -145,7 +145,7 @@ class DeviceErrorsSensor(WavespaEntity, BinarySensorEntity):
             if attr == "E32":
                 continue
 
-            if re.match("E\\d{2}", attr):
+            if re.fullmatch(r"E\d{2}", attr):
                 errors[attr] = bool(self.status.attrs[attr])
 
         # Pool filter
