@@ -1,2 +1,8 @@
-pytest-homeassistant-custom-component
-websockets
+# Pinned deliberately. This package pins the Home Assistant version it tests
+# against, so leaving it floating means CI silently changes what it verifies -
+# and can drift from the floor declared in hacs.json. Bump it on purpose,
+# together with that floor. 0.13.355 pins homeassistant 2026.8.1.
+pytest-homeassistant-custom-component==0.13.355
+
+# Matches the pin in manifest.json, so tests exercise the version users get.
+websockets==17.0.1

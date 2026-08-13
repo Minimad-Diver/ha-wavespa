@@ -28,14 +28,6 @@ def skip_notifications_fixture():
         yield
 
 
-# Skips login requests to obtain a user token.
-@pytest.fixture(name="bypass_auth")
-def bypass_auth():
-    """Skip authentication."""
-    with patch("custom_components.wavespa.wavespa.api.WavespaApi.get_user_token"):
-        yield
-
-
 # Triggers an exception during user authentication.
 @pytest.fixture(name="error_on_auth")
 def error_auth():
