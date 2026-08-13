@@ -11,10 +11,32 @@ import websockets
 
 from ..const import GIZWITS_APP_ID
 
+
 _LOGGER = getLogger(__name__)
 
 # Reconnection delays (exponential backoff): 3s → 6s → 12s → 24s → 48s → 60s max
 _RECONNECT_DELAYS = [3, 6, 12, 24, 48, 60]
+
+# Heartbeat interval declared to the server at login, and how often we
+# actually ping. Pinging at half the declared interval leaves room for
+# scheduling delay and network latency; pinging exactly on the deadline
+# meant any hiccup put the ping late and risked a server-side disconnect.
+_HEARTBEAT_INTERVAL_SECONDS = 180
+_HEARTBEAT_PING_SECONDS = _HEARTBEAT_INTERVAL_SECONDS // 2
+
+
+def _mask(device_id: str | None) -> str:
+    """Return a device ID safe to log.
+
+    api.py masks the same field before logging device listings, on the grounds
+    that people paste logs into forums without thinking. Debug logs are exactly
+    what ends up in a bug report, so the masking has to be consistent across
+    both modules. The last four characters are kept so lines can still be
+    correlated per device.
+    """
+    if not device_id:
+        return "unknown"
+    return f"***{device_id[-4:]}"
 
 
 class GizwitsWebSocketException(Exception):
@@ -264,7 +286,7 @@ class GizwitsWebSocket:
                 "uid": self._uid,
                 "token": self._token,
                 "p0_type": "attrs_v4",  # Use attributes protocol
-                "heartbeat_interval": 180,  # Send heartbeat every 180 seconds
+                "heartbeat_interval": _HEARTBEAT_INTERVAL_SECONDS,
                 "auto_subscribe": True,  # Subscribe to all bound devices
             },
         }
@@ -276,13 +298,13 @@ class GizwitsWebSocket:
     async def _heartbeat_loop(self) -> None:
         """Send application-level heartbeat to keep connection alive.
 
-        Gizwits requires explicit ping/pong messages every 180 seconds
-        to maintain the connection. This is separate from WebSocket
-        protocol-level ping/pong frames.
+        Gizwits requires explicit ping/pong messages within the interval
+        declared at login. This is separate from WebSocket protocol-level
+        ping/pong frames.
         """
         while self._connected:
             try:
-                await asyncio.sleep(180)  # Wait 3 minutes
+                await asyncio.sleep(_HEARTBEAT_PING_SECONDS)
 
                 if self._connected and self._websocket is not None:
                     # Send application-level ping
@@ -324,7 +346,7 @@ class GizwitsWebSocket:
                         is_online = device_data.get("is_online")
                         _LOGGER.debug(
                             "Device %s is now %s",
-                            device_id if device_id else "unknown",
+                            _mask(device_id),
                             "online" if is_online else "offline",
                         )
 
@@ -367,10 +389,12 @@ class GizwitsWebSocket:
             return
 
         if not attrs:
-            _LOGGER.debug("Received empty attrs for device %s", device_id)
+            _LOGGER.debug("Received empty attrs for device %s", _mask(device_id))
             return
 
-        _LOGGER.debug("Device update: %s with %d attributes", device_id, len(attrs))
+        _LOGGER.debug(
+            "Device update: %s with %d attributes", _mask(device_id), len(attrs)
+        )
 
         # Invoke update callback
         try:

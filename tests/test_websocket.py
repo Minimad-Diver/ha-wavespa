@@ -471,6 +471,47 @@ async def test_websocket_already_connected():
             await ws.disconnect()
 
 
+def test_device_ids_are_masked_in_logs():
+    """api.py masks device IDs before logging; this module must agree.
+
+    Debug logs are what people paste into bug reports, so masking in one module
+    and not the other defeats the point.
+    """
+    from custom_components.wavespa.wavespa.websocket import _mask
+
+    assert _mask("abcdef123456") == "***3456"
+    assert _mask(None) == "unknown"
+    assert _mask("") == "unknown"
+    # Enough to correlate lines per device, not enough to identify the device
+    assert "abcdef" not in _mask("abcdef123456")
+
+
+def test_heartbeat_pings_within_the_declared_interval():
+    """Pinging exactly on the deadline left no room for latency."""
+    from custom_components.wavespa.wavespa import websocket as ws_module
+
+    assert ws_module._HEARTBEAT_PING_SECONDS < ws_module._HEARTBEAT_INTERVAL_SECONDS
+    assert ws_module._HEARTBEAT_PING_SECONDS == 90
+
+
+@pytest.mark.asyncio
+async def test_login_declares_the_heartbeat_interval_it_honours():
+    """The interval sent to the server must match the constant we ping against."""
+    from custom_components.wavespa.wavespa import websocket as ws_module
+
+    ws = _make_ws()
+    mock_ws = MagicMock()
+    mock_ws.send = AsyncMock()
+    ws._websocket = mock_ws
+
+    await ws._send_login()
+
+    login_msg = json.loads(mock_ws.send.call_args[0][0])
+    assert (
+        login_msg["data"]["heartbeat_interval"] == ws_module._HEARTBEAT_INTERVAL_SECONDS
+    )
+
+
 @pytest.mark.asyncio
 async def test_heartbeat_loop_sends_ping():
     """Test heartbeat loop sends ping messages."""

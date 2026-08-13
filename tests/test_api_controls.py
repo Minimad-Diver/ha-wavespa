@@ -10,6 +10,7 @@ These tests pin down which side effects each setter is allowed to have:
 - the bubbles are independent of both
 """
 
+import asyncio
 import time
 from typing import Any, cast
 from unittest.mock import AsyncMock, patch
@@ -218,6 +219,68 @@ class TestControlWritesSurviveConcurrentPush:
         await api.spa_set_filter(_DEVICE_ID, True)
 
         assert _attrs(api)["Filter"] == 1
+
+
+class TestFetchDataConcurrency:
+    """Device requests run concurrently, not one after another.
+
+    Issued in sequence, a slow first device ate into the budget available to
+    the rest, so an account with several spas could time out as a whole even
+    though each request was within its own limit.
+    """
+
+    @staticmethod
+    def _api_with_devices(*device_ids: str) -> WavespaApi:
+        from unittest.mock import MagicMock
+
+        api = WavespaApi(session=AsyncMock(), user_token="token", api_root="http://api")
+        api.devices = {d: MagicMock() for d in device_ids}
+        return api
+
+    async def test_requests_overlap(self) -> None:
+        """All requests are in flight before any of them completes."""
+        api = self._api_with_devices("a", "b", "c")
+
+        in_flight = 0
+        peak = 0
+
+        async def slow_get(url: str) -> dict[str, Any]:
+            nonlocal in_flight, peak
+            in_flight += 1
+            peak = max(peak, in_flight)
+            await asyncio.sleep(0.01)
+            in_flight -= 1
+            return {"updated_at": 100, "attr": {"Heater": 1}}
+
+        api._do_get = slow_get  # type: ignore[method-assign]
+        await api.fetch_data()
+
+        assert peak == 3, "requests were issued sequentially"
+
+    async def test_every_device_is_still_cached(self) -> None:
+        api = self._api_with_devices("a", "b")
+
+        async def fake_get(url: str) -> dict[str, Any]:
+            return {"updated_at": 100, "attr": {"Heater": 1}}
+
+        api._do_get = fake_get  # type: ignore[method-assign]
+        results = await api.fetch_data()
+
+        assert set(results.devices) == {"a", "b"}
+
+    async def test_results_are_matched_to_the_right_device(self) -> None:
+        """Responses must not be zipped onto the wrong device."""
+        api = self._api_with_devices("a", "b")
+
+        async def fake_get(url: str) -> dict[str, Any]:
+            did = url.removesuffix("/latest").rsplit("/", 1)[-1]
+            return {"updated_at": 100, "attr": {"which": did}}
+
+        api._do_get = fake_get  # type: ignore[method-assign]
+        results = await api.fetch_data()
+
+        assert results.devices["a"].attrs["which"] == "a"
+        assert results.devices["b"].attrs["which"] == "b"
 
 
 class TestPollSuppressionUsesMonotonicClock:

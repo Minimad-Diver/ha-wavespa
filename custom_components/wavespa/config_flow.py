@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Mapping
 from logging import getLogger
 
@@ -66,10 +65,12 @@ async def validate_input(
     username = user_input[CONF_USERNAME]
     api_root = user_input[CONF_API_ROOT]
     session = async_get_clientsession(hass)
-    async with asyncio.timeout(10):
-        token = await WavespaApi.get_user_token(
-            session, username, user_input[CONF_PASSWORD], api_root
-        )
+    # get_user_token applies its own timeout; wrapping it in a second one here
+    # just duplicated the constant across two modules, where changing one would
+    # silently leave the other disagreeing.
+    token = await WavespaApi.get_user_token(
+        session, username, user_input[CONF_PASSWORD], api_root
+    )
 
     config_entry_data = dict(user_input)
     config_entry_data[CONF_USER_TOKEN] = token.user_token

@@ -190,11 +190,23 @@ class WavespaApi:
         ]
 
     async def fetch_data(self) -> WavespaApiResults:
-        """Fetch the latest data for all devices."""
-        for did, device_info in self.devices.items():
-            latest_data = await self._do_get(
-                f"{self._api_root}/app/devdata/{did}/latest"
+        """Fetch the latest data for all devices.
+
+        Device requests run concurrently. Issued in sequence, a slow first
+        device ate into the budget available to the rest, so on an account with
+        several spas the whole update could time out even though every
+        individual request was within its own limit.
+        """
+        device_ids = list(self.devices)
+        responses = await asyncio.gather(
+            *(
+                self._do_get(f"{self._api_root}/app/devdata/{did}/latest")
+                for did in device_ids
             )
+        )
+
+        for did, latest_data in zip(device_ids, responses, strict=True):
+            device_info = self.devices[did]
 
             # Get the age of the data according to the API
             api_update_timestamp = latest_data["updated_at"]
