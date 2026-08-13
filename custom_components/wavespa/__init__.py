@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from logging import getLogger
 
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
@@ -24,7 +23,7 @@ from .const import (
     CONF_USERNAME,
     DOMAIN,
 )
-from .coordinator import WavespaUpdateCoordinator
+from .coordinator import WavespaConfigEntry, WavespaUpdateCoordinator
 
 _LOGGER = getLogger(__name__)
 _PLATFORMS: list[Platform] = [
@@ -35,7 +34,7 @@ _PLATFORMS: list[Platform] = [
 ]
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_setup_entry(hass: HomeAssistant, entry: WavespaConfigEntry) -> bool:
     """Set up wavespa from a config entry."""
     username = str(entry.data.get(CONF_USERNAME))
     password = str(entry.data.get(CONF_PASSWORD))
@@ -138,40 +137,37 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     else:
         _LOGGER.info("No UID in config, WebSocket disabled (polling only)")
 
-    # Store WebSocket on coordinator to avoid data structure change
     coordinator.websocket = ws_client
 
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
+    entry.runtime_data = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, _PLATFORMS)
 
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
     return True
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_unload_entry(hass: HomeAssistant, entry: WavespaConfigEntry) -> bool:
     """Unload a config entry."""
-    coordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator = entry.runtime_data
 
     # Cleanup WebSocket connection before tearing down platforms
-    if hasattr(coordinator, "websocket") and coordinator.websocket:
+    if coordinator.websocket is not None:
         await coordinator.websocket.disconnect()
-        _LOGGER.info("WebSocket client disconnected")
+        _LOGGER.debug("WebSocket client disconnected")
 
     unload_ok: bool = await hass.config_entries.async_unload_platforms(
         entry, _PLATFORMS
     )
-    if unload_ok:
-        hass.data[DOMAIN].pop(entry.entry_id)
 
     return unload_ok
 
 
-async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+async def async_reload_entry(hass: HomeAssistant, entry: WavespaConfigEntry) -> None:
     """Reload config entry."""
     await hass.config_entries.async_reload(entry.entry_id)
 
 
-async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_migrate_entry(hass: HomeAssistant, entry: WavespaConfigEntry) -> bool:
     """Migrate old config versions to the latest.
 
     Steps are cumulative and each upgrades to the next version, so an entry

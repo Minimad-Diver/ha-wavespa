@@ -9,14 +9,13 @@ from time import monotonic
 from typing import Any
 
 from homeassistant.components.switch import SwitchEntity, SwitchEntityDescription
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .coordinator import WavespaUpdateCoordinator
+from .coordinator import WavespaConfigEntry, WavespaUpdateCoordinator
 from .wavespa.api import WavespaApi
 from .wavespa.model import WavespaDeviceStatus, WavespaDeviceType
-from .const import DOMAIN, Icon
+from .const import Icon
 from .entity import WavespaEntity
 
 
@@ -55,11 +54,11 @@ PARALLEL_UPDATES = 0
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    config_entry: ConfigEntry,
+    config_entry: WavespaConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up switch entities."""
-    coordinator: WavespaUpdateCoordinator = hass.data[DOMAIN][config_entry.entry_id]
+    coordinator = config_entry.runtime_data
 
     entities: list[WavespaEntity] = []
 
@@ -103,7 +102,7 @@ class WavespaSwitch(WavespaEntity, SwitchEntity):
     def __init__(
         self,
         coordinator: WavespaUpdateCoordinator,
-        config_entry: ConfigEntry,
+        config_entry: WavespaConfigEntry,
         device_id: str,
         description: WavespaSwitchEntityDescription,
     ) -> None:

@@ -12,14 +12,12 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
     BinarySensorEntityDescription,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.const import EntityCategory
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .coordinator import WavespaUpdateCoordinator
+from .coordinator import WavespaConfigEntry, WavespaUpdateCoordinator
 from .wavespa.model import WavespaDeviceType
-from .const import DOMAIN
 from .entity import WavespaEntity
 
 _SPA_CONNECTIVITY_SENSOR_DESCRIPTION = BinarySensorEntityDescription(
@@ -43,11 +41,11 @@ PARALLEL_UPDATES = 0
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    config_entry: ConfigEntry,
+    config_entry: WavespaConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up binary sensor entities."""
-    coordinator: WavespaUpdateCoordinator = hass.data[DOMAIN][config_entry.entry_id]
+    coordinator = config_entry.runtime_data
     entities: list[WavespaEntity] = []
 
     for device_id, device in coordinator.api.devices.items():
@@ -81,7 +79,7 @@ class DeviceConnectivitySensor(WavespaEntity, BinarySensorEntity):
     def __init__(
         self,
         coordinator: WavespaUpdateCoordinator,
-        config_entry: ConfigEntry,
+        config_entry: WavespaConfigEntry,
         device_id: str,
         entity_description: BinarySensorEntityDescription,
     ) -> None:
@@ -111,7 +109,7 @@ class DeviceErrorsSensor(WavespaEntity, BinarySensorEntity):
     def __init__(
         self,
         coordinator: WavespaUpdateCoordinator,
-        config_entry: ConfigEntry,
+        config_entry: WavespaConfigEntry,
         device_id: str,
         entity_description: BinarySensorEntityDescription,
     ) -> None:

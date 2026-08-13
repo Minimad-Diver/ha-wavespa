@@ -6,14 +6,12 @@ from typing import Any
 
 from homeassistant.components.climate import ClimateEntity, ClimateEntityFeature
 from homeassistant.components.climate.const import ATTR_HVAC_MODE, HVACAction, HVACMode
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_TEMPERATURE, PRECISION_WHOLE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .coordinator import WavespaUpdateCoordinator
+from .coordinator import WavespaConfigEntry, WavespaUpdateCoordinator
 from .wavespa.model import WavespaDeviceType, as_int
-from .const import DOMAIN
 from .entity import WavespaEntity
 
 _SPA_MIN_TEMP_C = 20
@@ -34,11 +32,11 @@ PARALLEL_UPDATES = 0
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    config_entry: ConfigEntry,
+    config_entry: WavespaConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up climate entities."""
-    coordinator: WavespaUpdateCoordinator = hass.data[DOMAIN][config_entry.entry_id]
+    coordinator = config_entry.runtime_data
 
     entities: list[WavespaEntity] = []
 
@@ -64,7 +62,7 @@ class WaveSpaThermostat(WavespaEntity, ClimateEntity):
     def __init__(
         self,
         coordinator: WavespaUpdateCoordinator,
-        config_entry: ConfigEntry,
+        config_entry: WavespaConfigEntry,
         device_id: str,
     ) -> None:
         """Initialize thermostat."""

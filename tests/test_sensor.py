@@ -21,7 +21,6 @@ from custom_components.wavespa.wavespa.model import (
     WavespaDeviceStatus,
 )
 from custom_components.wavespa.wavespa.api import WavespaApiResults
-from custom_components.wavespa.const import DOMAIN
 from custom_components.wavespa.sensor import (
     ESTIMATED_BUBBLES_WATTS,
     ESTIMATED_FILTER_WATTS,
@@ -405,9 +404,9 @@ class TestSetupEntry:
         device = _make_device(product_name=product_name)
         coordinator = _make_coordinator(device, _make_status())
         hass = MagicMock()
-        hass.data = {DOMAIN: {"test_entry": coordinator}}
         config_entry = MagicMock()
         config_entry.entry_id = "test_entry"
+        config_entry.runtime_data = coordinator
 
         added: list[Any] = []
 

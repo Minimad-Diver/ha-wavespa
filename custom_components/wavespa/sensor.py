@@ -15,15 +15,14 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.const import UnitOfEnergy, UnitOfPower
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.const import EntityCategory
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 from homeassistant.util import dt as dt_util
 
-from .coordinator import WavespaUpdateCoordinator
-from .const import DOMAIN, Icon
+from .coordinator import WavespaConfigEntry, WavespaUpdateCoordinator
+from .const import Icon
 from .entity import WavespaEntity
 from .wavespa.model import WavespaDevice, WavespaDeviceStatus, WavespaDeviceType
 
@@ -92,11 +91,11 @@ PARALLEL_UPDATES = 0
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    config_entry: ConfigEntry,
+    config_entry: WavespaConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Add sensors for passed config_entry in HA."""
-    coordinator: WavespaUpdateCoordinator = hass.data[DOMAIN][config_entry.entry_id]
+    coordinator = config_entry.runtime_data
     entities: list[WavespaEntity] = []
 
     for device_id, device in coordinator.api.devices.items():
@@ -221,7 +220,7 @@ class DeviceSensor(WavespaEntity, SensorEntity):
     def __init__(
         self,
         coordinator: WavespaUpdateCoordinator,
-        config_entry: ConfigEntry,
+        config_entry: WavespaConfigEntry,
         device_id: str,
         sensor_description: DeviceSensorDescription,
     ) -> None:
@@ -245,7 +244,7 @@ class FilterPercentSensor(WavespaEntity, SensorEntity):
     def __init__(
         self,
         coordinator: WavespaUpdateCoordinator,
-        config_entry: ConfigEntry,
+        config_entry: WavespaConfigEntry,
         device_id: str,
         entity_description: SensorEntityDescription,
     ) -> None:
@@ -277,7 +276,7 @@ class EstimatedPowerSensor(EstimatedAssumptionsMixin, WavespaEntity, SensorEntit
     def __init__(
         self,
         coordinator: WavespaUpdateCoordinator,
-        config_entry: ConfigEntry,
+        config_entry: WavespaConfigEntry,
         device_id: str,
         name: str,
     ) -> None:
@@ -311,7 +310,7 @@ class EstimatedEnergySensor(EstimatedAssumptionsMixin, WavespaEntity, RestoreSen
     def __init__(
         self,
         coordinator: WavespaUpdateCoordinator,
-        config_entry: ConfigEntry,
+        config_entry: WavespaConfigEntry,
         device_id: str,
         name: str,
     ) -> None:

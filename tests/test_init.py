@@ -65,10 +65,7 @@ async def test_setup_unload_and_reload_entry(hass: HomeAssistant, bypass_get_dat
     ) as get_user_token_fn:
         await hass.config_entries.async_setup(config_entry.entry_id)
 
-    assert DOMAIN in hass.data and config_entry.entry_id in hass.data[DOMAIN]
-    assert isinstance(
-        hass.data[DOMAIN][config_entry.entry_id], WavespaUpdateCoordinator
-    )
+    assert isinstance(config_entry.runtime_data, WavespaUpdateCoordinator)
 
     # The token expires far enough in the future that a call to refresh
     # the token should not be made.
@@ -76,14 +73,11 @@ async def test_setup_unload_and_reload_entry(hass: HomeAssistant, bypass_get_dat
 
     # Reload the entry and assert that the data from above is still there
     await hass.config_entries.async_reload(config_entry.entry_id)
-    assert DOMAIN in hass.data and config_entry.entry_id in hass.data[DOMAIN]
-    assert isinstance(
-        hass.data[DOMAIN][config_entry.entry_id], WavespaUpdateCoordinator
-    )
+    assert isinstance(config_entry.runtime_data, WavespaUpdateCoordinator)
 
-    # Unload the entry and verify that the data has been removed
+    # Unload the entry and verify Home Assistant tore it down
     assert await hass.config_entries.async_unload(config_entry.entry_id)
-    assert config_entry.entry_id not in hass.data[DOMAIN]
+    assert config_entry.state is ConfigEntryState.NOT_LOADED
 
 
 class _FakeWebSocket:
@@ -201,7 +195,7 @@ async def test_polling_slows_only_once_websocket_connects(hass: HomeAssistant):
     ):
         await hass.config_entries.async_setup(config_entry.entry_id)
 
-        coordinator = hass.data[DOMAIN][config_entry.entry_id]
+        coordinator = config_entry.runtime_data
 
         # Nothing has connected yet, so polling is still the only live source
         assert coordinator.update_interval == timedelta(seconds=30)

@@ -12,8 +12,12 @@ from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .wavespa.api import WavespaApi, WavespaApiResults, WavespaAuthException
+from .wavespa.websocket import GizwitsWebSocket
 
 _LOGGER = getLogger(__name__)
+
+# The config entry carries the coordinator as its runtime data.
+type WavespaConfigEntry = ConfigEntry["WavespaUpdateCoordinator"]
 
 # How often to poll the cloud API when it's the only source of state, and the
 # slower rate used once the WebSocket is delivering pushes and polling is just
@@ -26,7 +30,7 @@ class WavespaUpdateCoordinator(DataUpdateCoordinator[WavespaApiResults]):
     """Update coordinator that polls the device status for all devices in an account."""
 
     def __init__(
-        self, hass: HomeAssistant, config_entry: ConfigEntry, api: WavespaApi
+        self, hass: HomeAssistant, config_entry: WavespaConfigEntry, api: WavespaApi
     ) -> None:
         """Initialize my coordinator."""
         super().__init__(
@@ -38,7 +42,9 @@ class WavespaUpdateCoordinator(DataUpdateCoordinator[WavespaApiResults]):
         )
         self.api = api
         self._ws_last_update: dict[str, float] = {}  # Track WebSocket update times
-        self.websocket: Any = None  # WebSocket client (set in __init__.py)
+        # Set by async_setup_entry once the client is built; None when no
+        # UID is stored or the account has no devices to subscribe to.
+        self.websocket: GizwitsWebSocket | None = None
 
     ## fix from https://github.com/cdpuk/ha-bestway/issues/86
     async def _async_update_data(self) -> WavespaApiResults:
