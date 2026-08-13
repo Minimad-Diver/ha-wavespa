@@ -8,8 +8,13 @@ from logging import getLogger
 from typing import Any
 
 from aiohttp import ClientConnectionError
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
-from homeassistant.core import HomeAssistant
+from homeassistant.config_entries import (
+    ConfigEntry,
+    ConfigFlow,
+    ConfigFlowResult,
+    OptionsFlow,
+)
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 import voluptuous as vol
@@ -21,6 +26,12 @@ from .wavespa.api import (
 )
 from .const import (
     CONFIG_VERSION,
+    CONF_BUBBLES_WATTS,
+    CONF_FILTER_WATTS,
+    CONF_HEATER_WATTS,
+    DEFAULT_BUBBLES_WATTS,
+    DEFAULT_FILTER_WATTS,
+    DEFAULT_HEATER_WATTS,
     CONF_API_ROOT,
     CONF_API_ROOT_EU,
     CONF_API_ROOT_US,
@@ -46,6 +57,18 @@ _STEP_USER_DATA_SCHEMA = vol.Schema(
             )
         ),
     }
+)
+
+# Watts, as a plain number box. Bounded because a negative or absurd value
+# would silently corrupt the Energy dashboard rather than fail visibly.
+_WATTS_SELECTOR = selector.NumberSelector(
+    selector.NumberSelectorConfig(
+        min=0,
+        max=10000,
+        step=1,
+        mode=selector.NumberSelectorMode.BOX,
+        unit_of_measurement="W",
+    )
 )
 
 _STEP_REAUTH_DATA_SCHEMA = vol.Schema(
@@ -120,6 +143,68 @@ class WavespaConfigFlow(ConfigFlow, domain=DOMAIN):
             step_id="user", data_schema=_STEP_USER_DATA_SCHEMA, errors=errors
         )
 
+    @staticmethod
+    @callback
+    def async_get_options_flow(
+        config_entry: ConfigEntry,
+    ) -> WavespaOptionsFlow:
+        """Return the options flow for adjusting the wattage assumptions."""
+        return WavespaOptionsFlow()
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Change the credentials or API region without re-adding the entry.
+
+        The README tells people to try the other region when their account is
+        not found; without this, acting on that advice meant deleting the
+        integration and losing all device and entity history.
+        """
+        reconfigure_entry = self._get_reconfigure_entry()
+
+        if user_input is None:
+            return self.async_show_form(
+                step_id="reconfigure",
+                data_schema=self.add_suggested_values_to_schema(
+                    _STEP_USER_DATA_SCHEMA,
+                    {
+                        CONF_USERNAME: reconfigure_entry.data[CONF_USERNAME],
+                        CONF_API_ROOT: reconfigure_entry.data[CONF_API_ROOT],
+                    },
+                ),
+            )
+
+        errors = {}
+
+        try:
+            config_entry_data = await validate_input(self.hass, user_input)
+        except WavespaUserDoesNotExistException:
+            errors["base"] = "user_does_not_exist"
+        except WavespaIncorrectPasswordException:
+            errors["base"] = "incorrect_password"
+        except ClientConnectionError:
+            errors["base"] = "cannot_connect"
+        except Exception:  # pylint: disable=broad-except
+            _LOGGER.exception("Unexpected exception")
+            errors["base"] = "unknown_connection_error"
+        else:
+            # Reconfiguring must not silently repoint the entry at a different
+            # account - that would strand every device already registered here.
+            await self.async_set_unique_id(config_entry_data[CONF_UID])
+            self._abort_if_unique_id_mismatch(reason="wrong_account")
+
+            return self.async_update_reload_and_abort(
+                reconfigure_entry, data_updates=config_entry_data
+            )
+
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=self.add_suggested_values_to_schema(
+                _STEP_USER_DATA_SCHEMA, user_input
+            ),
+            errors=errors,
+        )
+
     async def async_step_reauth(
         self, entry_data: Mapping[str, Any]
     ) -> ConfigFlowResult:
@@ -177,3 +262,39 @@ class WavespaConfigFlow(ConfigFlow, domain=DOMAIN):
             description_placeholders={CONF_USERNAME: reauth_entry.data[CONF_USERNAME]},
             errors=errors,
         )
+
+
+class WavespaOptionsFlow(OptionsFlow):
+    """Adjust the wattages behind the estimated power and energy sensors.
+
+    These are modelled, not metered: different models draw different amounts,
+    and the EU and US variants differ on mains voltage alone. Because the
+    numbers feed the Energy dashboard, a spa that does not match the defaults
+    was silently accumulating wrong kWh with no supported way to correct it.
+    """
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Manage the options."""
+        if user_input is not None:
+            return self.async_create_entry(data=user_input)
+
+        options = self.config_entry.options
+        schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_HEATER_WATTS,
+                    default=options.get(CONF_HEATER_WATTS, DEFAULT_HEATER_WATTS),
+                ): _WATTS_SELECTOR,
+                vol.Required(
+                    CONF_BUBBLES_WATTS,
+                    default=options.get(CONF_BUBBLES_WATTS, DEFAULT_BUBBLES_WATTS),
+                ): _WATTS_SELECTOR,
+                vol.Required(
+                    CONF_FILTER_WATTS,
+                    default=options.get(CONF_FILTER_WATTS, DEFAULT_FILTER_WATTS),
+                ): _WATTS_SELECTOR,
+            }
+        )
+        return self.async_show_form(step_id="init", data_schema=schema)

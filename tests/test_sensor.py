@@ -81,6 +81,17 @@ def _make_coordinator(device: WavespaDevice, status: WavespaDeviceStatus | None)
     return coordinator
 
 
+def _make_config_entry(options: dict[str, Any] | None = None) -> MagicMock:
+    """A config entry whose options behave like a real (usually empty) mapping.
+
+    The estimated sensors read their wattages from entry.options, so a bare
+    MagicMock would hand them mock objects rather than numbers.
+    """
+    config_entry = MagicMock()
+    config_entry.options = options or {}
+    return config_entry
+
+
 # ---------------------------------------------------------------------------
 # EstimatedPowerSensor
 # ---------------------------------------------------------------------------
@@ -93,7 +104,7 @@ class TestEstimatedPowerSensor:
         device = _make_device()
         status = _make_status(attrs) if attrs is not None else None
         coordinator = _make_coordinator(device, status)
-        config_entry = MagicMock()
+        config_entry = _make_config_entry()
         return EstimatedPowerSensor(coordinator, config_entry, "test_device")
 
     def test_no_loads_active(self):
@@ -197,6 +208,44 @@ class TestEstimatedPowerSensor:
         sensor = self._make_sensor(None)
         assert sensor.native_value is None
 
+    def test_configured_wattages_are_used(self):
+        """Options override the defaults, so a different spa can be corrected."""
+        from custom_components.wavespa.const import (
+            CONF_BUBBLES_WATTS,
+            CONF_FILTER_WATTS,
+            CONF_HEATER_WATTS,
+        )
+
+        device = _make_device()
+        coordinator = _make_coordinator(
+            device,
+            _make_status({"Heater": 1, "Filter": 1, "Bubble": 1}),
+        )
+        config_entry = _make_config_entry(
+            {
+                CONF_HEATER_WATTS: 2400,
+                CONF_BUBBLES_WATTS: 750,
+                CONF_FILTER_WATTS: 40,
+            }
+        )
+        sensor = EstimatedPowerSensor(coordinator, config_entry, "test_device")
+
+        assert sensor.native_value == 2400 + 750 + 40
+
+    def test_configured_wattages_are_reported_in_attributes(self):
+        """The attributes must describe the numbers actually in use."""
+        from custom_components.wavespa.const import CONF_HEATER_WATTS
+
+        device = _make_device()
+        coordinator = _make_coordinator(device, _make_status())
+        config_entry = _make_config_entry({CONF_HEATER_WATTS: 2400})
+        sensor = EstimatedPowerSensor(coordinator, config_entry, "test_device")
+
+        attrs = sensor.extra_state_attributes
+        assert attrs["heater_watts"] == 2400
+        # Unset options still fall back to the defaults
+        assert attrs["filter_watts"] == ESTIMATED_FILTER_WATTS
+
     def test_extra_state_attributes(self):
         """Reports the wattage assumptions used for the estimate."""
         sensor = self._make_sensor({"Heater": 0, "Filter": 0, "Bubble": 0})
@@ -222,7 +271,7 @@ class TestEstimatedEnergySensor:
         device = _make_device()
         status = _make_status(attrs if attrs is not None else {})
         coordinator = _make_coordinator(device, status)
-        config_entry = MagicMock()
+        config_entry = _make_config_entry()
         return EstimatedEnergySensor(coordinator, config_entry, "test_device")
 
     def test_initial_native_value_is_zero(self):
@@ -470,7 +519,7 @@ class TestSetupEntry:
         device = _make_device(product_name=product_name)
         coordinator = _make_coordinator(device, _make_status())
         hass = MagicMock()
-        config_entry = MagicMock()
+        config_entry = _make_config_entry()
         config_entry.entry_id = "test_entry"
         config_entry.runtime_data = coordinator
 

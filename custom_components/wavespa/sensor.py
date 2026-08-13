@@ -22,15 +22,45 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 from homeassistant.util import dt as dt_util
 
+from .const import (
+    CONF_BUBBLES_WATTS,
+    CONF_FILTER_WATTS,
+    CONF_HEATER_WATTS,
+    DEFAULT_BUBBLES_WATTS,
+    DEFAULT_FILTER_WATTS,
+    DEFAULT_HEATER_WATTS,
+)
 from .coordinator import WavespaConfigEntry, WavespaUpdateCoordinator
 from .entity import WavespaEntity
 from .wavespa.model import WavespaDevice, WavespaDeviceStatus, WavespaDeviceType
 
 _LOGGER = getLogger(__name__)
 
-ESTIMATED_HEATER_WATTS = 1800
-ESTIMATED_BUBBLES_WATTS = 600
-ESTIMATED_FILTER_WATTS = 50
+# Kept as module constants for the defaults and for tests; the live values come
+# from the config entry options, which default to these.
+ESTIMATED_HEATER_WATTS = DEFAULT_HEATER_WATTS
+ESTIMATED_BUBBLES_WATTS = DEFAULT_BUBBLES_WATTS
+ESTIMATED_FILTER_WATTS = DEFAULT_FILTER_WATTS
+
+
+@dataclass(frozen=True)
+class Wattages:
+    """The assumed draw of each load, in watts."""
+
+    heater: int
+    bubbles: int
+    filter: int
+
+    @classmethod
+    def from_entry(cls, entry: WavespaConfigEntry) -> Wattages:
+        """Read the wattages configured for this entry, falling back to defaults."""
+        options = entry.options
+        return cls(
+            heater=int(options.get(CONF_HEATER_WATTS, DEFAULT_HEATER_WATTS)),
+            bubbles=int(options.get(CONF_BUBBLES_WATTS, DEFAULT_BUBBLES_WATTS)),
+            filter=int(options.get(CONF_FILTER_WATTS, DEFAULT_FILTER_WATTS)),
+        )
+
 
 # The longest gap between coordinator updates that the energy estimate will
 # attribute to the last known wattage. Comfortably above the 5-minute
@@ -39,10 +69,17 @@ ESTIMATED_FILTER_WATTS = 50
 _MAX_INTEGRATION_STEP = timedelta(minutes=15)
 
 
-def _estimate_watts(status: WavespaDeviceStatus | None) -> int:
+def _estimate_watts(
+    status: WavespaDeviceStatus | None, wattages: Wattages | None = None
+) -> int:
     """Estimate instantaneous power draw in watts from reported spa state."""
     if status is None:
         return 0
+
+    if wattages is None:
+        wattages = Wattages(
+            ESTIMATED_HEATER_WATTS, ESTIMATED_BUBBLES_WATTS, ESTIMATED_FILTER_WATTS
+        )
 
     watts = 0
 
@@ -52,16 +89,16 @@ def _estimate_watts(status: WavespaDeviceStatus | None) -> int:
     # fiction to the Energy dashboard. Missing readings count as not heating,
     # so a gap under-reports rather than invents consumption.
     if status.is_heating:
-        watts += ESTIMATED_HEATER_WATTS
+        watts += wattages.heater
 
     # Filter pump is active when Filter == 1.
     if status.flag("Filter"):
-        watts += ESTIMATED_FILTER_WATTS
+        watts += wattages.filter
 
     # Bubbles are active when Bubble is non-zero (some models report a
     # level rather than a simple on/off).
     if status.flag("Bubble"):
-        watts += ESTIMATED_BUBBLES_WATTS
+        watts += wattages.bubbles
 
     return watts
 
@@ -73,14 +110,22 @@ class EstimatedAssumptionsMixin:
     report the same assumptions to let users check the numbers.
     """
 
+    config_entry: WavespaConfigEntry
+
+    @property
+    def wattages(self) -> Wattages:
+        """The wattages configured for this spa."""
+        return Wattages.from_entry(self.config_entry)
+
     @property
     def extra_state_attributes(self) -> dict[str, int | str]:
         """Return the assumptions used by this estimated sensor."""
+        wattages = self.wattages
         return {
             "calculation": "estimated",
-            "heater_watts": ESTIMATED_HEATER_WATTS,
-            "bubbles_watts": ESTIMATED_BUBBLES_WATTS,
-            "filter_watts": ESTIMATED_FILTER_WATTS,
+            "heater_watts": wattages.heater,
+            "bubbles_watts": wattages.bubbles,
+            "filter_watts": wattages.filter,
         }
 
 
@@ -289,7 +334,7 @@ class EstimatedPowerSensor(EstimatedAssumptionsMixin, WavespaEntity, SensorEntit
         """Return estimated current power draw in watts."""
         if self.status is None:
             return None
-        return _estimate_watts(self.status)
+        return _estimate_watts(self.status, self.wattages)
 
 
 class EstimatedEnergySensor(EstimatedAssumptionsMixin, WavespaEntity, RestoreSensor):
@@ -338,7 +383,7 @@ class EstimatedEnergySensor(EstimatedAssumptionsMixin, WavespaEntity, RestoreSen
                 self._energy_kwh = self._as_kwh(last_state.state)
 
         self._last_update = dt_util.utcnow()
-        self._last_watts = _estimate_watts(self.status)
+        self._last_watts = _estimate_watts(self.status, self.wattages)
 
     @staticmethod
     def _as_kwh(value: Any) -> float:
@@ -383,7 +428,7 @@ class EstimatedEnergySensor(EstimatedAssumptionsMixin, WavespaEntity, RestoreSen
                 )
 
         self._last_update = now
-        self._last_watts = _estimate_watts(self.status)
+        self._last_watts = _estimate_watts(self.status, self.wattages)
 
         super()._handle_coordinator_update()
 

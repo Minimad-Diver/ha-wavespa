@@ -15,3 +15,14 @@ CONF_USER_TOKEN = "user_token"
 CONF_USER_TOKEN_EXPIRY = "user_token_expiry"
 CONF_UID = "uid"
 GIZWITS_APP_ID = "78a879318939402b9c70819d918ef8ed"
+
+# Options: assumed power draw of each load, in watts. These feed the
+# estimated power and energy sensors, which are modelled rather than
+# metered, so they need to be adjustable per spa.
+CONF_HEATER_WATTS = "heater_watts"
+CONF_BUBBLES_WATTS = "bubbles_watts"
+CONF_FILTER_WATTS = "filter_watts"
+
+DEFAULT_HEATER_WATTS = 1800
+DEFAULT_BUBBLES_WATTS = 600
+DEFAULT_FILTER_WATTS = 50

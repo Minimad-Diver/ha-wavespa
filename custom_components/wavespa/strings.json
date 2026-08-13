@@ -15,6 +15,15 @@
         "data": {
           "password": "Password"
         }
+      },
+      "reconfigure": {
+        "title": "Wavespa Reconfiguration",
+        "description": "Update the credentials or API location for this account. The account must be the same one already configured.",
+        "data": {
+          "username": "Username (e-mail address)",
+          "password": "Password",
+          "apiroot": "API location"
+        }
       }
     },
     "error": {
@@ -26,7 +35,8 @@
     "abort": {
       "already_configured": "This Wavespa account is already configured",
       "wrong_account": "The credentials are for a different Wavespa account",
-      "reauth_successful": "Re-authentication was successful"
+      "reauth_successful": "Re-authentication was successful",
+      "reconfigure_successful": "Reconfiguration was successful"
     }
   },
   "entity": {
@@ -75,6 +85,19 @@
       },
       "bubbles": {
         "name": "Bubbles"
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Estimated power assumptions",
+        "description": "The Estimated Power and Estimated Energy sensors are modelled, not measured. Set the power each load actually draws on your spa so the Energy dashboard reflects it.",
+        "data": {
+          "heater_watts": "Heater",
+          "bubbles_watts": "Bubbles",
+          "filter_watts": "Filter pump"
+        }
       }
     }
   }
