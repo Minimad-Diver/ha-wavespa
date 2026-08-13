@@ -5,10 +5,12 @@ in the integration: _all_error_properties applies four separate matching rules
 to the raw attrs and feeds both is_on and extra_state_attributes.
 """
 
+from collections.abc import Iterable
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 from homeassistant.const import EntityCategory
+from homeassistant.helpers.entity import Entity
 
 from custom_components.wavespa.binary_sensor import (
     DeviceConnectivitySensor,
@@ -50,6 +52,13 @@ def _make_coordinator(device: WavespaDevice, attrs: dict[str, Any] | None):
     return coordinator
 
 
+def _reported_errors(sensor: DeviceErrorsSensor) -> dict[str, Any]:
+    """The sensor's extra attributes, narrowed from Mapping | None."""
+    attrs = sensor.extra_state_attributes
+    assert attrs is not None
+    return dict(attrs)
+
+
 def _make_errors_sensor(attrs: dict[str, Any] | None) -> DeviceErrorsSensor:
     from custom_components.wavespa.binary_sensor import (
         _SPA_ERRORS_SENSOR_DESCRIPTION,
@@ -67,7 +76,7 @@ class TestErrorMatching:
     def test_system_err_is_detected(self) -> None:
         sensor = _make_errors_sensor({"system_err1": 1})
         assert sensor.is_on is True
-        assert sensor.extra_state_attributes["system_err1"] is True
+        assert _reported_errors(sensor)["system_err1"] is True
 
     def test_multi_digit_system_err_is_detected(self) -> None:
         sensor = _make_errors_sensor({"system_err12": 1})
@@ -89,13 +98,13 @@ class TestErrorMatching:
         """E32 means heating is on and the spa has reached temperature."""
         sensor = _make_errors_sensor({"E32": 1})
         assert sensor.is_on is False
-        assert "E32" not in sensor.extra_state_attributes
+        assert "E32" not in _reported_errors(sensor)
 
     def test_longer_e_code_is_not_matched(self) -> None:
         """re.match anchors only at the start, so E123 used to match E\\d{2}."""
         sensor = _make_errors_sensor({"E123": 1})
         assert sensor.is_on is False
-        assert "E123" not in sensor.extra_state_attributes
+        assert "E123" not in _reported_errors(sensor)
 
     def test_string_zero_is_not_an_error(self) -> None:
         """bool("0") is True, so a string-typed clear flag looked like a fault."""
@@ -214,9 +223,16 @@ class TestSetupEntry:
         config_entry.runtime_data = coordinator
 
         added: list[Any] = []
-        await async_setup_entry(
-            MagicMock(), config_entry, lambda entities: added.extend(entities)
-        )
+
+        def add_entities(
+            new_entities: Iterable[Entity],
+            update_before_add: bool = False,
+            *,
+            config_subentry_id: str | None = None,
+        ) -> None:
+            added.extend(new_entities)
+
+        await async_setup_entry(MagicMock(), config_entry, add_entities)
         return added
 
     async def test_supported_spa_gets_both_sensors(self) -> None:

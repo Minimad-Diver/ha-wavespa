@@ -526,7 +526,10 @@ class TestSetupEntry:
         added: list[Any] = []
 
         def add_entities(
-            new_entities: Iterable[Entity], update_before_add: bool = False
+            new_entities: Iterable[Entity],
+            update_before_add: bool = False,
+            *,
+            config_subentry_id: str | None = None,
         ) -> None:
             added.extend(new_entities)
 

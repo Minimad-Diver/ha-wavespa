@@ -3,6 +3,7 @@
 import asyncio
 import json
 import sys
+from types import FrameType
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -17,10 +18,10 @@ from custom_components.wavespa.wavespa.websocket import (
 def _stack_depth() -> int:
     """Return the current call stack depth, without touching the filesystem."""
     depth = 0
-    frame: object | None = sys._getframe()
+    frame: FrameType | None = sys._getframe()
     while frame is not None:
         depth += 1
-        frame = frame.f_back  # type: ignore[union-attr]
+        frame = frame.f_back
     return depth
 
 
