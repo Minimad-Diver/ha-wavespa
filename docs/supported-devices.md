@@ -25,6 +25,38 @@ warning level so support can be added.
 | -------------- | ----------------------- | -------- |
 | Wave Spa Garda | `Wave_SPA_EU`           | standard |
 
+## Observed attributes
+
+What a device actually reports, from integration debug logs. Useful when adding
+support for a new model, or working out which attribute drives a feature.
+
+`Wave_SPA_EU`, observed 2026-08-13 with the spa above its target temperature:
+
+| Attribute               | Example | Used by the integration         |
+| ----------------------- | ------- | ------------------------------- |
+| `Current_temperature`   | `26`    | Thermostat, heating state       |
+| `Temperature_setup`     | `24`    | Thermostat, heating state       |
+| `Heater`                | `1`     | Thermostat mode, power estimate |
+| `Filter`                | `1`     | Filter switch, power estimate   |
+| `Bubble`                | `0`     | Bubbles switch, power estimate  |
+| `Time_filter`           | `22`    | Filter life sensor              |
+| `Fp`                    | `0`     | Not used                        |
+| `Overtime_filter`       | `0`     | Not used                        |
+| `Superheat`             | `0`     | Not used                        |
+| `Undercooling`          | `0`     | Not used                        |
+| `Temp1` `Temp2` `Temp3` | `0`     | Not used                        |
+| `bit1` `bit2`           | `0`     | Not used                        |
+
+Two things worth knowing about this sample:
+
+- `Heater` is `1` while the water is 26 °C against a 24 °C target. The flag
+  means heating is _enabled_, not that the element is drawing power — which is
+  why the integration compares the two temperatures rather than trusting it.
+- No `E32` or any other `E`-code is reported at temperature, and none of the
+  `system_err*`, `earth` or `error` attributes appear at all. Those are
+  Bestway heritage; see the note against the Errors sensor in the issue
+  tracker.
+
 ## Protocol support
 
 | Protocol | Supported          |

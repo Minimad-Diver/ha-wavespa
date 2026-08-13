@@ -147,8 +147,12 @@ class DeviceErrorsSensor(WavespaEntity, BinarySensorEntity):
 
         # spa error properties
         for attr in status.attrs:
-            # E32: Not actually an error. This means heating is on but the spa has
-            #      already reached the desired temperature.
+            # E32 is reportedly "heating on, target already reached" rather than
+            # a fault. It has not been observed on Wave_SPA_EU - a device over
+            # its target reports no E-code at all - so the exclusion is kept
+            # only in case another model or firmware does send it. It is not
+            # what tells the integration whether the spa is heating; that comes
+            # from comparing the two temperature readings.
             if attr == "E32":
                 continue
 
