@@ -21,6 +21,17 @@ Pull requests are the best way to propose changes to the codebase.
 Branch from `dev` and open your pull request against `dev`. Changes reach
 `main` from `dev` once they have been tested.
 
+### Releases
+
+Release tags are bare version numbers matching the `version` field in
+`custom_components/wavespa/manifest.json` — `2.0.0`, not `v2.0.0` or `V2.0.0`.
+HACS resolves releases by tag, so the format needs to stay consistent.
+
+This repository is a fork, and the upstream project used `v`- and `V`-prefixed
+tags. Those belong to upstream and are not part of this fork's history; a
+`git fetch --all` will pull them into a local clone, where they can be ignored.
+Use `git ls-remote --tags origin` to see this fork's tags.
+
 ### Making a change
 
 1. Fork the repo and create your branch from `dev`.
