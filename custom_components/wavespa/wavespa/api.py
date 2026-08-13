@@ -28,11 +28,15 @@ _HEADERS = {
 }
 _TIMEOUT = 10
 
-# How long a control command suppresses polls for that device. A GET issued
-# straight after a POST still returns the old values, so the local write is
-# trusted for this long. Measured on the monotonic clock, so it is immune to
-# host clock skew and to the API and host disagreeing about the time.
-_LOCAL_WRITE_SETTLE_SECONDS = 15
+# How long fresher-than-poll data suppresses polls for that device. Covers both
+# WebSocket pushes (the device reporting directly) and control commands (a GET
+# straight after a POST still returns the old values). Measured on the monotonic
+# clock, so it is immune to host clock skew and to the API and the host
+# disagreeing about the time.
+#
+# Deliberately short: polling is the safety net for when pushes stop, so the
+# window has to lapse quickly once they do.
+_FRESH_WRITE_SETTLE_SECONDS = 15
 
 
 @dataclass
@@ -133,9 +137,10 @@ class WavespaApi:
         # more recent than the local update.
         self._state_cache: dict[str, WavespaDeviceStatus] = {}
 
-        # Monotonic timestamp of the last local (control-command) write per
-        # device, used to suppress polls that would report pre-command state.
-        self._local_writes: dict[str, float] = {}
+        # Monotonic timestamp of the last write that is newer than anything a
+        # poll could report - a WebSocket push or a control command - per
+        # device. Used to stop a stale poll response overwriting it.
+        self._fresh_writes: dict[str, float] = {}
 
     @staticmethod
     async def get_user_token(
@@ -220,8 +225,9 @@ class WavespaApi:
 
             cached_state: WavespaDeviceStatus | None = self._state_cache.get(did)
 
-            # A poll that raced a control command we just sent would report the
-            # pre-command state, so a local write suppresses polls briefly.
+            # A poll can carry older data than a WebSocket push we already
+            # applied, or than a control command the API has not caught up with,
+            # so recent fresher data suppresses it briefly.
             #
             # The window is measured on the local monotonic clock rather than by
             # comparing the API's updated_at against a locally stamped
@@ -231,7 +237,7 @@ class WavespaApi:
             # which silently left the WebSocket as the only source of state.
             if self._local_write_is_recent(did):
                 _LOGGER.debug(
-                    "Ignoring poll for device %s; a local change is still settling",
+                    "Ignoring poll for device %s; fresher data is still settling",
                     did,
                 )
                 continue
@@ -275,11 +281,11 @@ class WavespaApi:
         return WavespaApiResults(self._state_cache)
 
     def _local_write_is_recent(self, device_id: str) -> bool:
-        """Return True if we changed this device within the settle window."""
-        written_at = self._local_writes.get(device_id)
+        """Return True if fresher-than-poll data arrived within the settle window."""
+        written_at = self._fresh_writes.get(device_id)
         if written_at is None:
             return False
-        return (monotonic() - written_at) < _LOCAL_WRITE_SETTLE_SECONDS
+        return (monotonic() - written_at) < _FRESH_WRITE_SETTLE_SECONDS
 
     def merge_device_attrs(self, device_id: str, attrs: dict[str, Any]) -> None:
         """
@@ -293,6 +299,11 @@ class WavespaApi:
         The cache entry is replaced rather than mutated in place, and is looked
         up fresh on every call, so callers must not hold a reference across an
         await and write to it afterwards - see ``_apply_control_result``.
+
+        Both callers write data that is newer than anything a poll can report -
+        a push is the device telling us directly, and a control write is a
+        command the API has not caught up with yet - so both stamp the freshness
+        marker that fetch_data checks.
         """
         existing = self._state_cache.get(device_id)
         merged_attrs = {**existing.attrs, **attrs} if existing else dict(attrs)
@@ -300,6 +311,7 @@ class WavespaApi:
             timestamp=int(time()),
             attrs=merged_attrs,
         )
+        self._fresh_writes[device_id] = monotonic()
 
     def _require_known_device(self, device_id: str) -> None:
         """Raise unless we hold cached state for the given device."""
@@ -317,12 +329,11 @@ class WavespaApi:
         for target temperature, which has no optimistic overlay in the UI to
         paper over it.
 
-        Also records the write on the monotonic clock, so fetch_data can skip
-        polls that would report the pre-command state without having to compare
+        merge_device_attrs stamps the freshness marker that makes fetch_data
+        skip polls reporting the pre-command state, without having to compare
         the API's clock against ours.
         """
         self.merge_device_attrs(device_id, attrs)
-        self._local_writes[device_id] = monotonic()
 
     async def spa_set_filter(self, device_id: str, filtering: bool) -> None:
         """

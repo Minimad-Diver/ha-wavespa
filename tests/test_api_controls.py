@@ -291,7 +291,31 @@ class TestPollSuppressionUsesMonotonicClock:
     of the Gizwits server discarded every poll for as long as the skew lasted -
     indefinitely on a host with no working NTP, silently leaving the WebSocket
     as the only source of state.
+
+    The window has to cover WebSocket pushes as well as control writes: both
+    carry data newer than any poll can, so a poll arriving just afterwards must
+    not overwrite them with a staler server snapshot.
     """
+
+    async def test_websocket_push_suppresses_poll(self) -> None:
+        """A push is the device reporting directly; a poll must not undo it."""
+        api = _make_api({"Filter": 0})
+        api.merge_device_attrs(_DEVICE_ID, {"Filter": 1})
+        assert api._local_write_is_recent(_DEVICE_ID) is True
+
+    async def test_stale_poll_does_not_overwrite_a_fresh_push(self) -> None:
+        api = _make_api({"Filter": 0})
+        api.devices = {_DEVICE_ID: object()}  # type: ignore[dict-item]
+
+        async def stale_get(url: str) -> dict[str, Any]:
+            return {"updated_at": 1, "attr": {"Filter": 0}}
+
+        api._do_get = stale_get  # type: ignore[method-assign]
+        api.merge_device_attrs(_DEVICE_ID, {"Filter": 1})
+
+        await api.fetch_data()
+
+        assert _attrs(api)["Filter"] == 1
 
     async def test_recent_local_write_suppresses_poll(self) -> None:
         api = _make_api({"Filter": 0})
@@ -304,11 +328,11 @@ class TestPollSuppressionUsesMonotonicClock:
         api = _make_api({"Filter": 0})
         await api.spa_set_filter(_DEVICE_ID, True)
 
-        written_at = api._local_writes[_DEVICE_ID]
+        written_at = api._fresh_writes[_DEVICE_ID]
         with patch.object(
             api_module,
             "monotonic",
-            return_value=written_at + api_module._LOCAL_WRITE_SETTLE_SECONDS + 1,
+            return_value=written_at + api_module._FRESH_WRITE_SETTLE_SECONDS + 1,
         ):
             assert api._local_write_is_recent(_DEVICE_ID) is False
 
