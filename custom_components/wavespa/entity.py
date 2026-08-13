@@ -50,6 +50,17 @@ class WavespaEntity(CoordinatorEntity[WavespaUpdateCoordinator]):
 
         info["name"] = device_info.alias
         info["model"] = device_info.device_type.value
+        # Firmware and hardware versions belong on the device page rather than
+        # only as separate diagnostic sensors; the bindings response already
+        # carries them.
+        info["sw_version"] = (
+            f"MCU {device_info.mcu_soft_version} / "
+            f"Wi-Fi {device_info.wifi_soft_version}"
+        )
+        info["hw_version"] = (
+            f"MCU {device_info.mcu_hard_version} / "
+            f"Wi-Fi {device_info.wifi_hard_version}"
+        )
         return info
 
     @property

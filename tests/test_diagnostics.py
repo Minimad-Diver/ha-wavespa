@@ -1,0 +1,135 @@
+"""Tests for diagnostics.py.
+
+The point of the download is the raw attr dictionary, so these check that the
+attrs survive verbatim while credentials and identifiers do not.
+"""
+
+from typing import Any
+from unittest.mock import MagicMock
+
+from custom_components.wavespa.const import (
+    CONF_PASSWORD,
+    CONF_UID,
+    CONF_USER_TOKEN,
+    CONF_USERNAME,
+)
+from custom_components.wavespa.diagnostics import (
+    async_get_config_entry_diagnostics,
+)
+from custom_components.wavespa.wavespa.api import WavespaApiResults
+from custom_components.wavespa.wavespa.model import WavespaDevice, WavespaDeviceStatus
+
+_ATTRS = {
+    "Heater": 1,
+    "Filter": 1,
+    "Bubble": 0,
+    "Current_temperature": 30,
+    "Temperature_setup": 40,
+    "Time_filter": 5000,
+}
+
+
+def _make_entry() -> MagicMock:
+    device = WavespaDevice(
+        protocol_version=2,
+        device_id="did123456",
+        product_name="Wave_SPA_EU",
+        alias="Test Spa",
+        mcu_soft_version="1.0",
+        mcu_hard_version="1.1",
+        wifi_soft_version="2.0",
+        wifi_hard_version="2.1",
+        is_online=True,
+    )
+    coordinator = MagicMock()
+    coordinator.api.devices = {"did123456": device}
+    coordinator.data = WavespaApiResults(
+        devices={"did123456": WavespaDeviceStatus(timestamp=1000, attrs=dict(_ATTRS))}
+    )
+    coordinator.last_update_success = True
+    coordinator.websocket.is_connected = True
+
+    entry = MagicMock()
+    entry.version = 2
+    entry.data = {
+        CONF_USERNAME: "person@example.org",
+        CONF_PASSWORD: "hunter2",
+        CONF_USER_TOKEN: "secret-token",
+        CONF_UID: "uid-123",
+        "apiroot": "https://euapi.gizwits.com",
+    }
+    entry.options = {}
+    entry.runtime_data = coordinator
+    return entry
+
+
+async def _diag() -> dict[str, Any]:
+    return await async_get_config_entry_diagnostics(MagicMock(), _make_entry())
+
+
+class TestRedaction:
+    """Credentials and identifiers must not survive into a public issue."""
+
+    async def test_credentials_are_redacted(self) -> None:
+        diag = await _diag()
+        data = diag["entry"]["data"]
+        for key in (CONF_USERNAME, CONF_PASSWORD, CONF_USER_TOKEN, CONF_UID):
+            assert data[key] == "**REDACTED**"
+
+    async def test_device_id_is_redacted(self) -> None:
+        diag = await _diag()
+        assert diag["devices"][0]["device_id"] == "**REDACTED**"
+
+    async def test_no_secret_appears_anywhere(self) -> None:
+        """Belt and braces: scan the serialised output for the raw values."""
+        import json
+
+        blob = json.dumps(await _diag())
+        for secret in ("hunter2", "secret-token", "uid-123", "did123456"):
+            assert secret not in blob
+
+    async def test_api_root_is_kept(self) -> None:
+        """Not a secret, and it tells you which region a report came from."""
+        diag = await _diag()
+        assert diag["entry"]["data"]["apiroot"] == "https://euapi.gizwits.com"
+
+
+class TestContent:
+    """What the download is actually for."""
+
+    async def test_raw_attrs_are_reported_verbatim(self) -> None:
+        diag = await _diag()
+        assert diag["devices"][0]["status"]["attrs"] == _ATTRS
+
+    async def test_derived_values_are_included(self) -> None:
+        """Saves cross-checking the derivation by hand when triaging."""
+        diag = await _diag()
+        status = diag["devices"][0]["status"]
+        assert status["is_heating"] is True
+        assert status["percent_filter"] == 50
+
+    async def test_versions_are_reported(self) -> None:
+        diag = await _diag()
+        device = diag["devices"][0]
+        assert device["mcu_soft_version"] == "1.0"
+        assert device["wifi_hard_version"] == "2.1"
+        assert device["product_name"] == "Wave_SPA_EU"
+
+    async def test_coordinator_state_is_reported(self) -> None:
+        diag = await _diag()
+        assert diag["coordinator"]["last_update_success"] is True
+        assert diag["coordinator"]["websocket_connected"] is True
+
+    async def test_handles_a_device_with_no_status(self) -> None:
+        entry = _make_entry()
+        entry.runtime_data.data = WavespaApiResults(devices={})
+
+        diag = await async_get_config_entry_diagnostics(MagicMock(), entry)
+        assert diag["devices"][0]["status"] is None
+
+    async def test_handles_no_websocket(self) -> None:
+        entry = _make_entry()
+        entry.runtime_data.websocket = None
+
+        diag = await async_get_config_entry_diagnostics(MagicMock(), entry)
+        assert diag["coordinator"]["websocket_connected"] is None
