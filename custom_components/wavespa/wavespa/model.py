@@ -32,8 +32,9 @@ class TemperatureUnit(Enum):
     FAHRENHEIT = auto()
 
 
-# Maximum raw "Time_filter" countdown value reported by the device, used to
-# convert the raw value into a remaining-life percentage.
+# Full service life of the filter, in whatever units "Time_filter" is reported
+# in. Time_filter counts *up* from zero as the filter is used, so this is the
+# value it climbs towards, not a starting point it counts down from.
 _TIME_FILTER_MAX = 10200
 
 
@@ -62,12 +63,19 @@ class WavespaDeviceStatus:
 
     @property
     def percent_filter(self) -> int | None:
-        """Get the filter life as a percentage, derived from attrs.
+        """Get the remaining filter life as a percentage, derived from attrs.
 
-        The device reports a raw "Time_filter" countdown in attrs; this
-        converts it to a remaining-life percentage. Because it reads from
-        attrs (which the coordinator merges across WebSocket deltas), the
-        value persists even when a partial update omits Time_filter.
+        "Time_filter" counts up from zero as the filter is used, towards
+        _TIME_FILTER_MAX, so the remaining life is the inverse of how far it
+        has climbed. A low raw value means a nearly new filter.
+
+        (Earlier comments here called it a countdown, which would have made
+        this calculation backwards. Confirmed against a real device: it counts
+        up, and the arithmetic below is right.)
+
+        Because it reads from attrs (which the coordinator merges across
+        WebSocket deltas), the value persists even when a partial update omits
+        Time_filter.
         """
         raw = as_int(self.attrs.get("Time_filter"))
         if raw is None:

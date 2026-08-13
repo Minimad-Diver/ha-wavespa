@@ -121,13 +121,28 @@ class TestFlag:
 
 
 class TestPercentFilter:
-    """Filter life, derived from the raw Time_filter countdown."""
+    """Remaining filter life, derived from the raw Time_filter usage counter.
+
+    Time_filter counts up from zero as the filter is used, so a low raw value
+    is a nearly new filter. These tests pin that direction: if the arithmetic
+    were ever inverted, test_full and test_empty would swap.
+    """
 
     def test_full(self) -> None:
         assert _status(Time_filter=0).percent_filter == 100
 
     def test_empty(self) -> None:
         assert _status(Time_filter=10200).percent_filter == 0
+
+    def test_observed_device_value(self) -> None:
+        """A real Wave_SPA_EU reported Time_filter=22 on a fresh filter.
+
+        Confirms the direction with a value from hardware rather than only the
+        two endpoints: a small raw value is a nearly new filter, so it reports
+        nearly full life. If the counter were a countdown this would be a
+        nearly exhausted filter reporting 99%.
+        """
+        assert _status(Time_filter=22).percent_filter == 99
 
     def test_missing_is_none(self) -> None:
         assert _status().percent_filter is None
