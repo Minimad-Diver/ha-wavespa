@@ -2,18 +2,20 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
 from homeassistant.components.climate import ClimateEntity, ClimateEntityFeature
 from homeassistant.components.climate.const import ATTR_HVAC_MODE, HVACAction, HVACMode
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_TEMPERATURE, PRECISION_WHOLE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import WavespaUpdateCoordinator
-from .wavespa.model import WavespaDeviceType, HydrojetHeat
-from .const import DOMAIN
+from .coordinator import WavespaConfigEntry, WavespaUpdateCoordinator
+from .wavespa.api import WavespaException
+from .wavespa.model import WavespaDeviceType, as_int
 from .entity import WavespaEntity
 
 _SPA_MIN_TEMP_C = 20
@@ -27,19 +29,39 @@ _CLIMATE_FEATURES = (
 )
 
 
+@contextmanager
+def _reporting_errors(action: str) -> Iterator[None]:
+    """Re-raise API failures as HomeAssistantError.
+
+    Home Assistant reports a HomeAssistantError from a service call as a
+    message to the user; anything else surfaces as an unhandled traceback in
+    the log with nothing shown in the UI.
+    """
+    try:
+        yield
+    except WavespaException as ex:
+        raise HomeAssistantError(f"Failed to {action}: {ex}") from ex
+
+
+# Entity state comes from the coordinator, so updates are not per-entity
+# polling and do not need serialising.
+PARALLEL_UPDATES = 0
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
-    config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    config_entry: WavespaConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up climate entities."""
-    coordinator: WavespaUpdateCoordinator = hass.data[DOMAIN][config_entry.entry_id]
+    coordinator = config_entry.runtime_data
 
     entities: list[WavespaEntity] = []
 
     for device_id, device in coordinator.api.devices.items():
         if device.device_type in [
-            WavespaDeviceType.WAVESPA_EU, WavespaDeviceType.WAVESPA_US,
+            WavespaDeviceType.WAVESPA_EU,
+            WavespaDeviceType.WAVESPA_US,
         ]:
             entities.append(WaveSpaThermostat(coordinator, config_entry, device_id))
 
@@ -49,7 +71,7 @@ async def async_setup_entry(
 class WaveSpaThermostat(WavespaEntity, ClimateEntity):
     """A thermostat for WaveSpa devices."""
 
-    _attr_name = "Spa Thermostat"
+    _attr_translation_key = "thermostat"
     _attr_supported_features = _CLIMATE_FEATURES
     _attr_hvac_modes = [HVACMode.OFF, HVACMode.HEAT]
     _attr_precision = PRECISION_WHOLE
@@ -58,7 +80,7 @@ class WaveSpaThermostat(WavespaEntity, ClimateEntity):
     def __init__(
         self,
         coordinator: WavespaUpdateCoordinator,
-        config_entry: ConfigEntry,
+        config_entry: WavespaConfigEntry,
         device_id: str,
     ) -> None:
         """Initialize thermostat."""
@@ -70,51 +92,54 @@ class WaveSpaThermostat(WavespaEntity, ClimateEntity):
         """Return the current mode (HEAT or OFF)."""
         if not self.status:
             return None
-        heater = self.status.attrs.get("Heater")
+        heater = self.status.flag("Heater")
         if heater is None:
             return None
         return HVACMode.HEAT if heater else HVACMode.OFF
 
     @property
     def hvac_action(self) -> HVACAction | None:
-        """Return the current running action (HEATING or IDLE)."""
+        """Return the current running action (OFF, HEATING or IDLE)."""
         if not self.status:
             return None
-        heat_on = self.status.attrs.get("Heater")
-        target = self.status.attrs.get("Temperature_setup")
-        current = self.status.attrs.get("Current_temperature")
-        if heat_on is None or target is None or current is None:
+
+        # Heating switched off entirely is OFF, matching hvac_mode. IDLE is
+        # reserved for "on, but not currently calling for heat".
+        heater = self.status.flag("Heater")
+        if heater is None:
             return None
-        target_reached = int(target) == int(current)
-        return (
-            HVACAction.HEATING if (heat_on and not target_reached) else HVACAction.IDLE
-        )
+        if not heater:
+            return HVACAction.OFF
+
+        heating = self.status.is_heating
+        if heating is None:
+            return None
+        return HVACAction.HEATING if heating else HVACAction.IDLE
 
     @property
     def current_temperature(self) -> float | None:
         """Return the current temperature."""
         if not self.status:
             return None
-        current = self.status.attrs.get("Current_temperature")
-        return int(current) if current is not None else None
+        return as_int(self.status.attrs.get("Current_temperature"))
 
     @property
     def target_temperature(self) -> float | None:
         """Return the temperature we try to reach."""
         if not self.status:
             return None
-        target = self.status.attrs.get("Temperature_setup")
-        return int(target) if target is not None else None
+        return as_int(self.status.attrs.get("Temperature_setup"))
 
     @property
     def temperature_unit(self) -> str:
         """Return the unit of measurement used by the platform."""
-        if not self.status:
-            return str(UnitOfTemperature.CELSIUS)
-        device_type = self.coordinator.api.devices[self.device_id].device_type
-        if device_type == WavespaDeviceType.WAVESPA_US:
+        # Looked up with .get() rather than indexing: a bindings refresh that
+        # omits the device would otherwise raise from a property Home Assistant
+        # reads routinely.
+        device = self.wavespa_device
+        if device is not None and device.device_type == WavespaDeviceType.WAVESPA_US:
             return str(UnitOfTemperature.FAHRENHEIT)
-        # Default to Celsius for other device types
+        # Default to Celsius for other (and unknown) device types
         return str(UnitOfTemperature.CELSIUS)
 
     @property
@@ -146,7 +171,8 @@ class WaveSpaThermostat(WavespaEntity, ClimateEntity):
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         """Set new target hvac mode."""
         should_heat = hvac_mode == HVACMode.HEAT
-        await self.coordinator.api.spa_set_heat(self.device_id, should_heat)
+        with _reporting_errors("set the heating mode"):
+            await self.coordinator.api.spa_set_heat(self.device_id, should_heat)
         await self.coordinator.async_request_refresh()
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
@@ -155,11 +181,12 @@ class WaveSpaThermostat(WavespaEntity, ClimateEntity):
         if target_temperature is None:
             return
 
-        if hvac_mode := kwargs.get(ATTR_HVAC_MODE):
-            should_heat = hvac_mode == HVACMode.HEAT
-            await self.coordinator.api.spa_set_heat(self.device_id, should_heat)
+        with _reporting_errors("set the target temperature"):
+            if hvac_mode := kwargs.get(ATTR_HVAC_MODE):
+                should_heat = hvac_mode == HVACMode.HEAT
+                await self.coordinator.api.spa_set_heat(self.device_id, should_heat)
 
-        await self.coordinator.api.spa_set_target_temp(
-            self.device_id, target_temperature
-        )
+            await self.coordinator.api.spa_set_target_temp(
+                self.device_id, target_temperature
+            )
         await self.coordinator.async_request_refresh()

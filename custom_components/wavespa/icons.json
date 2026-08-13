@@ -1,0 +1,38 @@
+{
+  "entity": {
+    "sensor": {
+      "estimated_power": {
+        "default": "mdi:flash"
+      },
+      "estimated_energy": {
+        "default": "mdi:lightning-bolt"
+      },
+      "percent_filter": {
+        "default": "mdi:image-filter-tilt-shift"
+      },
+      "protocol_version": {
+        "default": "mdi:protocol"
+      },
+      "mcu_soft_version": {
+        "default": "mdi:application-braces"
+      },
+      "mcu_hard_version": {
+        "default": "mdi:chip"
+      },
+      "wifi_soft_version": {
+        "default": "mdi:application-braces"
+      },
+      "wifi_hard_version": {
+        "default": "mdi:chip"
+      }
+    },
+    "switch": {
+      "filter": {
+        "default": "mdi:image-filter-tilt-shift"
+      },
+      "bubbles": {
+        "default": "mdi:chart-bubble"
+      }
+    }
+  }
+}

@@ -12,42 +12,46 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
     BinarySensorEntityDescription,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import EntityCategory
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.const import EntityCategory
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import WavespaUpdateCoordinator
+from .coordinator import WavespaConfigEntry, WavespaUpdateCoordinator
 from .wavespa.model import WavespaDeviceType
-from .const import DOMAIN
 from .entity import WavespaEntity
 
 _SPA_CONNECTIVITY_SENSOR_DESCRIPTION = BinarySensorEntityDescription(
     key="spa_connected",
     device_class=BinarySensorDeviceClass.CONNECTIVITY,
     entity_category=EntityCategory.DIAGNOSTIC,
-    name="Spa Connected",
+    translation_key="spa_connected",
 )
 
 _SPA_ERRORS_SENSOR_DESCRIPTION = BinarySensorEntityDescription(
     key="spa_has_error",
-    name="Spa Errors",
+    translation_key="spa_has_error",
     device_class=BinarySensorDeviceClass.PROBLEM,
 )
 
 
+# Entity state comes from the coordinator, so updates are not per-entity
+# polling and do not need serialising.
+PARALLEL_UPDATES = 0
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
-    config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    config_entry: WavespaConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up binary sensor entities."""
-    coordinator: WavespaUpdateCoordinator = hass.data[DOMAIN][config_entry.entry_id]
+    coordinator = config_entry.runtime_data
     entities: list[WavespaEntity] = []
 
     for device_id, device in coordinator.api.devices.items():
         if device.device_type in [
-            WavespaDeviceType.WAVESPA_EU, WavespaDeviceType.WAVESPA_US,
+            WavespaDeviceType.WAVESPA_EU,
+            WavespaDeviceType.WAVESPA_US,
         ]:
             entities.extend(
                 [
@@ -75,13 +79,12 @@ class DeviceConnectivitySensor(WavespaEntity, BinarySensorEntity):
     def __init__(
         self,
         coordinator: WavespaUpdateCoordinator,
-        config_entry: ConfigEntry,
+        config_entry: WavespaConfigEntry,
         device_id: str,
         entity_description: BinarySensorEntityDescription,
     ) -> None:
         """Initialize sensor."""
         self.entity_description = entity_description
-        self._attr_entity_category = EntityCategory.DIAGNOSTIC
         self._attr_unique_id = f"{device_id}_{self.entity_description.key}"
         super().__init__(
             coordinator,
@@ -106,13 +109,12 @@ class DeviceErrorsSensor(WavespaEntity, BinarySensorEntity):
     def __init__(
         self,
         coordinator: WavespaUpdateCoordinator,
-        config_entry: ConfigEntry,
+        config_entry: WavespaConfigEntry,
         device_id: str,
         entity_description: BinarySensorEntityDescription,
     ) -> None:
         """Initialize sensor."""
         self.entity_description = entity_description
-        self._attr_entity_category = EntityCategory.DIAGNOSTIC
         self._attr_unique_id = f"{device_id}_{self.entity_description.key}"
         super().__init__(
             coordinator,
@@ -121,34 +123,41 @@ class DeviceErrorsSensor(WavespaEntity, BinarySensorEntity):
         )
 
     def _all_error_properties(self) -> dict[str, bool]:
-        """Get all error properties from the device status."""
+        """Get all error properties from the device status.
+
+        Flags are read through status.flag() rather than bool(), for the same
+        reason as everywhere else: bool("0") is True, so a spa reporting its
+        error codes as strings would raise a fault that is not there. An
+        unreadable value counts as no error rather than as a fault.
+        """
         errors: dict[str, bool] = {}
 
-        if not self.status:
+        status = self.status
+        if not status:
             return errors
 
         # error properties
-        for attr in self.status.attrs:
-            if re.match("system_err\\d+", attr):
-                errors[attr] = bool(self.status.attrs[attr])
+        for attr in status.attrs:
+            if re.fullmatch(r"system_err\d+", attr):
+                errors[attr] = status.flag(attr) is True
 
         # ground fault
-        if "earth" in self.status.attrs:
-            errors["earth"] = bool(self.status.attrs["earth"])
+        if "earth" in status.attrs:
+            errors["earth"] = status.flag("earth") is True
 
         # spa error properties
-        for attr in self.status.attrs:
+        for attr in status.attrs:
             # E32: Not actually an error. This means heating is on but the spa has
             #      already reached the desired temperature.
             if attr == "E32":
                 continue
 
-            if re.match("E\\d{2}", attr):
-                errors[attr] = bool(self.status.attrs[attr])
+            if re.fullmatch(r"E\d{2}", attr):
+                errors[attr] = status.flag(attr) is True
 
         # Pool filter
-        if "error" in self.status.attrs:
-            errors["error"] = bool(self.status.attrs["error"])
+        if "error" in status.attrs:
+            errors["error"] = status.flag("error") is True
 
         return errors
 

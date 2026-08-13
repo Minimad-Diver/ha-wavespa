@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from homeassistant import config_entries
 from homeassistant.data_entry_flow import FlowResultType
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 import pytest
 
 from custom_components.wavespa.wavespa.model import WavespaUserToken
@@ -51,6 +52,7 @@ def bypass_setup_fixture():
     ):
         yield
 
+
 @pytest.fixture(autouse=True)
 def verify_cleanup() -> Generator[None]:
     """Override verify_cleanup to tolerate the _run_safe_shutdown_loop thread.
@@ -66,6 +68,7 @@ def verify_cleanup() -> Generator[None]:
     for thread in frozenset(threading.enumerate()) - threads_before:
         if thread.daemon:
             thread.join(timeout=2.0)
+
 
 # Simiulate a successful config flow.
 async def test_successful_config_flow(hass, bypass_get_data):
@@ -118,3 +121,67 @@ async def test_failed_config_flow(hass, error_on_auth):
 
     assert result["type"] == FlowResultType.FORM
     assert result["errors"] == {"base": "unknown_connection_error"}
+
+
+async def test_options_flow_sets_wattages(hass):
+    """The wattage assumptions can be corrected for a spa that differs."""
+    from custom_components.wavespa.const import (
+        CONF_BUBBLES_WATTS,
+        CONF_FILTER_WATTS,
+        CONF_HEATER_WATTS,
+    )
+
+    config_entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_USERNAME: "test@example.org",
+            CONF_PASSWORD: "P@asw0rd",
+            CONF_API_ROOT: CONF_API_ROOT_EU,
+            CONF_UID: "uid",
+        },
+        version=2,
+        entry_id="options_test",
+    )
+    config_entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(config_entry.entry_id)
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "init"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            CONF_HEATER_WATTS: 2400,
+            CONF_BUBBLES_WATTS: 750,
+            CONF_FILTER_WATTS: 40,
+        },
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert config_entry.options[CONF_HEATER_WATTS] == 2400
+    assert config_entry.options[CONF_BUBBLES_WATTS] == 750
+    assert config_entry.options[CONF_FILTER_WATTS] == 40
+
+
+async def test_options_flow_defaults_to_current_values(hass):
+    """The form opens on the defaults rather than empty."""
+    config_entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_USERNAME: "test@example.org",
+            CONF_PASSWORD: "P@asw0rd",
+            CONF_API_ROOT: CONF_API_ROOT_EU,
+            CONF_UID: "uid",
+        },
+        version=2,
+        entry_id="options_defaults",
+    )
+    config_entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(config_entry.entry_id)
+    assert result["type"] == FlowResultType.FORM
+    # Submitting the form unchanged stores the defaults
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], user_input={}
+    )
+    assert result["type"] == FlowResultType.CREATE_ENTRY

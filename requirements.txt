@@ -1,4 +1,12 @@
 colorlog==6.9.0
-homeassistant==2025.11.0
+
+# Must match the Home Assistant version pinned by the
+# pytest-homeassistant-custom-component release in requirements_test.txt.
+# requirements_dev.txt installs both files into one environment, so two
+# different Home Assistant pins cannot be resolved - bump them together.
+#
+# This is the version developed and tested against, not the minimum version
+# supported by the integration; that is declared in hacs.json.
+homeassistant==2026.8.1
 pip>=21.3.1
-ruff==0.13.2
+ruff==0.15.10

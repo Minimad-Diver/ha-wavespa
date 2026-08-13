@@ -3,11 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum, IntEnum, auto
-from logging import getLogger
+from enum import Enum, auto
 from typing import Any
-
-_LOGGER = getLogger(__name__)
 
 
 class WavespaDeviceType(Enum):
@@ -35,93 +32,25 @@ class TemperatureUnit(Enum):
     FAHRENHEIT = auto()
 
 
-class HydrojetFilter(IntEnum):
-    """Airjet_V01/Hydrojet filter values."""
-
-    OFF = 0
-    ON = 2
-
-
-class HydrojetHeat(IntEnum):
-    """Airjet_V01/Hydrojet heater values."""
-
-    OFF = 0
-    ON = 3
-
-
-class BubblesLevel(Enum):
-    """Bubbles levels available to a range of spa models."""
-
-    OFF = auto()
-    MEDIUM = auto()
-    MAX = auto()
-
-
-class BubblesValues:
-    """Values that represent a given level of bubbles.
-
-    The write_value is the integer used to set the level via the API.
-
-    The read_values list contains a set of integers that may be read from the API to signal the
-    desired state. This came about because different users of Airjet_V01 devices reported that
-    their app/device would sometimes represent MEDIUM bubbles as 50, but sometimes as 51.
-    """
-
-    write_value: int
-    read_values: list[int]
-
-    def __init__(self, write_value: int, read_values: list[int] | None = None) -> None:
-        """Define the values used for a specific bubbles level."""
-        self.write_value = write_value
-        if read_values:
-            self.read_values = read_values
-        else:
-            self.read_values = [write_value]
-
-
-class BubblesMapping:
-    """Maps off, medium and max bubbles levels to integer API values."""
-
-    def __init__(
-        self, off_val: BubblesValues, medium_val: BubblesValues, max_val: BubblesValues
-    ) -> None:
-        """Construct a bubbles mapping using the given integer values."""
-        self.off_val = off_val
-        self.medium_val = medium_val
-        self.max_val = max_val
-
-    def to_api_value(self, level: BubblesLevel) -> int:
-        """Get the API value to be used when setting the given bubbles level."""
-
-        if level == BubblesLevel.MAX:
-            return self.max_val.write_value
-        elif level == BubblesLevel.MEDIUM:
-            return self.medium_val.write_value
-        else:
-            return self.off_val.write_value
-
-    def from_api_value(self, value: int) -> BubblesLevel:
-        """Get the enum value based on the 'wave' field in the API response."""
-
-        if value in self.max_val.read_values:
-            return BubblesLevel.MAX
-        if value in self.medium_val.read_values:
-            return BubblesLevel.MEDIUM
-        if value in self.off_val.read_values:
-            return BubblesLevel.OFF
-
-        _LOGGER.warning("Unexpected API value %d - assuming OFF", value)
-        return BubblesLevel.OFF
-
-
-BV = BubblesValues
-AIRJET_V01_BUBBLES_MAP = BubblesMapping(BV(0), BV(50, [50, 51]), BV(100))
-HYDROJET_BUBBLES_MAP = BubblesMapping(BV(0), BV(40), BV(100))
-
-
 # Maximum raw "Time_filter" countdown value reported by the device, used to
 # convert the raw value into a remaining-life percentage.
 _TIME_FILTER_MAX = 10200
+
+
+def as_int(value: Any) -> int | None:
+    """Coerce an attribute to int, returning None if it isn't numeric.
+
+    The API is not consistent about types, and the difference matters: a
+    string "0" is truthy in Python, so reading an on/off flag with bool()
+    reports a spa that is off as running. Everything that interprets an
+    attribute goes through here so the whole integration agrees.
+    """
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 @dataclass
@@ -140,11 +69,38 @@ class WavespaDeviceStatus:
         attrs (which the coordinator merges across WebSocket deltas), the
         value persists even when a partial update omits Time_filter.
         """
-        raw = self.attrs.get("Time_filter")
+        raw = as_int(self.attrs.get("Time_filter"))
         if raw is None:
             return None
         percent = 100 - ((raw / _TIME_FILTER_MAX) * 100)
         return max(0, min(100, int(percent)))
+
+    def flag(self, name: str) -> bool | None:
+        """Return an on/off attribute as a bool, or None if absent or unusable.
+
+        Anything non-zero counts as on, so this also covers the attributes that
+        report a level rather than a simple on/off (e.g. Bubble).
+        """
+        value = as_int(self.attrs.get(name))
+        return None if value is None else value != 0
+
+    @property
+    def is_heating(self) -> bool | None:
+        """Return whether the heating element is actually drawing power.
+
+        The spa reports Heater == 1 whenever heating is *enabled*, including
+        while it sits at temperature doing nothing, so the target has to be
+        checked too. Returns None if any of the three readings are missing or
+        cannot be read as numbers.
+        """
+        heat_on = self.flag("Heater")
+        target = as_int(self.attrs.get("Temperature_setup"))
+        current = as_int(self.attrs.get("Current_temperature"))
+        if heat_on is None or target is None or current is None:
+            return None
+        # Use >= for "reached" so an overshoot (e.g. 41 °C against a 40 °C
+        # target) still counts, rather than heating indefinitely.
+        return heat_on and current < target
 
 
 @dataclass

@@ -2,7 +2,7 @@
 
 from datetime import timedelta
 from time import time
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from homeassistant.core import HomeAssistant
@@ -14,6 +14,23 @@ from custom_components.wavespa.const import CONF_API_ROOT, CONF_API_ROOT_EU, DOM
 from custom_components.wavespa.coordinator import WavespaUpdateCoordinator
 
 
+def _make_api(*device_ids: str) -> WavespaApi:
+    """Build a real API with the given devices registered and no network.
+
+    The tests below exercise the state merging the coordinator delegates to the
+    API, so a real instance is used rather than a mock. Nothing here issues a
+    request, so the session is never touched.
+    """
+    api = WavespaApi(session=AsyncMock(), user_token="token", api_root="http://api")
+    api.devices = {device_id: MagicMock() for device_id in device_ids}
+    return api
+
+
+def _cached(api: WavespaApi) -> dict[str, WavespaDeviceStatus]:
+    """Return the API's cached device states."""
+    return api.cached_results().devices
+
+
 @pytest.mark.asyncio
 async def test_coordinator_websocket_update(hass: HomeAssistant):
     """Test coordinator receives and processes WebSocket updates."""
@@ -23,11 +40,8 @@ async def test_coordinator_websocket_update(hass: HomeAssistant):
         entry_id="test",
     )
 
-    # Create mock API
-    api = MagicMock(spec=WavespaApi)
-    api._state_cache = {}
     # The coordinator ignores updates for unknown devices, so register it
-    api.devices = {"device123": MagicMock()}
+    api = _make_api("device123")
 
     # Create coordinator
     coordinator = WavespaUpdateCoordinator(hass, config_entry, api)
@@ -43,8 +57,8 @@ async def test_coordinator_websocket_update(hass: HomeAssistant):
     coordinator.handle_websocket_update("device123", test_attrs)
 
     # Verify state cache updated
-    assert "device123" in api._state_cache
-    cached_status = api._state_cache["device123"]
+    assert "device123" in _cached(api)
+    cached_status = _cached(api)["device123"]
     assert isinstance(cached_status, WavespaDeviceStatus)
     assert cached_status.attrs == test_attrs
     assert cached_status.timestamp > 0
@@ -100,6 +114,65 @@ async def test_coordinator_set_websocket_active(hass: HomeAssistant):
 
 
 @pytest.mark.asyncio
+async def test_polling_returns_to_slow_rate_after_reconnect(hass: HomeAssistant):
+    """Test a recovered WebSocket restores the 5-minute polling interval.
+
+    set_websocket_active() used to be called once at setup only, so the first
+    dropped connection pinned polling at 30 seconds until the entry was
+    reloaded - hammering the cloud API ten times more often than intended even
+    though pushes had resumed.
+    """
+    config_entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_API_ROOT: CONF_API_ROOT_EU},
+        entry_id="test",
+    )
+
+    api = MagicMock(spec=WavespaApi)
+    coordinator = WavespaUpdateCoordinator(hass, config_entry, api)
+
+    coordinator.set_websocket_active()
+    assert coordinator.update_interval == timedelta(seconds=300)
+
+    coordinator.handle_websocket_disconnect()
+    assert coordinator.update_interval == timedelta(seconds=30)
+
+    # The feed comes back
+    coordinator.set_websocket_active()
+    assert coordinator.update_interval == timedelta(seconds=300)
+
+    # And survives a second outage cycle
+    coordinator.handle_websocket_disconnect()
+    coordinator.set_websocket_active()
+    assert coordinator.update_interval == timedelta(seconds=300)
+
+
+@pytest.mark.asyncio
+async def test_repeated_interval_changes_are_idempotent(hass: HomeAssistant):
+    """Test re-announcing the same state doesn't churn the interval.
+
+    A flapping connection can call these repeatedly; each should settle on the
+    same interval rather than depending on how many times it was called.
+    """
+    config_entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_API_ROOT: CONF_API_ROOT_EU},
+        entry_id="test",
+    )
+
+    api = MagicMock(spec=WavespaApi)
+    coordinator = WavespaUpdateCoordinator(hass, config_entry, api)
+
+    for _ in range(3):
+        coordinator.set_websocket_active()
+    assert coordinator.update_interval == timedelta(seconds=300)
+
+    for _ in range(3):
+        coordinator.handle_websocket_disconnect()
+    assert coordinator.update_interval == timedelta(seconds=30)
+
+
+@pytest.mark.asyncio
 async def test_multi_device_websocket_updates(hass: HomeAssistant):
     """Test WebSocket updates work correctly with multiple devices."""
     config_entry = MockConfigEntry(
@@ -108,9 +181,7 @@ async def test_multi_device_websocket_updates(hass: HomeAssistant):
         entry_id="test",
     )
 
-    api = MagicMock(spec=WavespaApi)
-    api._state_cache = {}
-    api.devices = {"device1": MagicMock(), "device2": MagicMock()}
+    api = _make_api("device1", "device2")
 
     coordinator = WavespaUpdateCoordinator(hass, config_entry, api)
 
@@ -121,12 +192,13 @@ async def test_multi_device_websocket_updates(hass: HomeAssistant):
     coordinator.handle_websocket_update("device2", {"power": 0, "temp_now": 25})
 
     # Verify both devices updated independently
-    assert "device1" in api._state_cache
-    assert "device2" in api._state_cache
-    assert api._state_cache["device1"].attrs["power"] == 1
-    assert api._state_cache["device1"].attrs["temp_now"] == 38
-    assert api._state_cache["device2"].attrs["power"] == 0
-    assert api._state_cache["device2"].attrs["temp_now"] == 25
+    cached = _cached(api)
+    assert "device1" in cached
+    assert "device2" in cached
+    assert cached["device1"].attrs["power"] == 1
+    assert cached["device1"].attrs["temp_now"] == 38
+    assert cached["device2"].attrs["power"] == 0
+    assert cached["device2"].attrs["temp_now"] == 25
 
 
 @pytest.mark.asyncio
@@ -138,9 +210,7 @@ async def test_websocket_update_creates_device_status(hass: HomeAssistant):
         entry_id="test",
     )
 
-    api = MagicMock(spec=WavespaApi)
-    api._state_cache = {}
-    api.devices = {"device_abc": MagicMock()}
+    api = _make_api("device_abc")
 
     coordinator = WavespaUpdateCoordinator(hass, config_entry, api)
 
@@ -151,7 +221,7 @@ async def test_websocket_update_creates_device_status(hass: HomeAssistant):
     coordinator.handle_websocket_update("device_abc", {"power": 1})
 
     # Verify WavespaDeviceStatus created with current timestamp
-    status = api._state_cache["device_abc"]
+    status = _cached(api)["device_abc"]
     assert status.timestamp >= before_time
     assert status.timestamp <= int(time())
     assert status.attrs == {"power": 1}
@@ -166,9 +236,7 @@ async def test_coordinator_tracks_websocket_update_times(hass: HomeAssistant):
         entry_id="test",
     )
 
-    api = MagicMock(spec=WavespaApi)
-    api._state_cache = {}
-    api.devices = {"device1": MagicMock()}
+    api = _make_api("device1")
 
     coordinator = WavespaUpdateCoordinator(hass, config_entry, api)
 

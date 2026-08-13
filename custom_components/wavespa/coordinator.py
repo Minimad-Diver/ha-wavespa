@@ -8,29 +8,43 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-from .wavespa.api import WavespaApi, WavespaApiResults
-from .wavespa.model import WavespaDeviceStatus
+from .wavespa.api import WavespaApi, WavespaApiResults, WavespaAuthException
+from .wavespa.websocket import GizwitsWebSocket
 
 _LOGGER = getLogger(__name__)
+
+# The config entry carries the coordinator as its runtime data.
+type WavespaConfigEntry = ConfigEntry["WavespaUpdateCoordinator"]
+
+# How often to poll the cloud API when it's the only source of state, and the
+# slower rate used once the WebSocket is delivering pushes and polling is just
+# a safety net.
+_POLL_INTERVAL = timedelta(seconds=30)
+_WEBSOCKET_POLL_INTERVAL = timedelta(seconds=300)
 
 
 class WavespaUpdateCoordinator(DataUpdateCoordinator[WavespaApiResults]):
     """Update coordinator that polls the device status for all devices in an account."""
 
-    def __init__(self, hass: HomeAssistant, config_entry: ConfigEntry, api: WavespaApi) -> None:
+    def __init__(
+        self, hass: HomeAssistant, config_entry: WavespaConfigEntry, api: WavespaApi
+    ) -> None:
         """Initialize my coordinator."""
         super().__init__(
             hass,
             _LOGGER,
-			config_entry=config_entry,
+            config_entry=config_entry,
             name="Wavespa API",
-            update_interval=timedelta(seconds=30),
+            update_interval=_POLL_INTERVAL,
         )
         self.api = api
         self._ws_last_update: dict[str, float] = {}  # Track WebSocket update times
-        self.websocket: Any = None  # WebSocket client (set in __init__.py)
+        # Set by async_setup_entry once the client is built; None when no
+        # UID is stored or the account has no devices to subscribe to.
+        self.websocket: GizwitsWebSocket | None = None
 
     ## fix from https://github.com/cdpuk/ha-bestway/issues/86
     async def _async_update_data(self) -> WavespaApiResults:
@@ -39,16 +53,25 @@ class WavespaUpdateCoordinator(DataUpdateCoordinator[WavespaApiResults]):
         This is the place to pre-process the data to lookup tables
         so entities can quickly look up their data.
         """
-        async with asyncio.timeout(10):
-            try:
-                await self.api.refresh_bindings()
-            except Exception as e:
-                # Log the error if necessary or just pass to silently ignore
-                # You can log it with your logging system like:
-                # _LOGGER.error(f"Failed to refresh bindings: {e}")
-                pass  # Ignore failures on refresh_bindings
+        try:
+            async with asyncio.timeout(10):
+                try:
+                    await self.api.refresh_bindings()
+                except WavespaAuthException:
+                    # An expired or revoked token won't fix itself, so this
+                    # one isn't swallowed with the rest.
+                    raise
+                except Exception as ex:  # pylint: disable=broad-except
+                    # A failed device-list refresh shouldn't block the status
+                    # fetch below, which can still serve the known devices.
+                    _LOGGER.warning("Failed to refresh device list: %s", ex)
 
-            return await self.api.fetch_data()
+                return await self.api.fetch_data()
+        except WavespaAuthException as ex:
+            # Raising this is what starts HA's reauth flow. Letting it escape
+            # as a generic error would become UpdateFailed instead, leaving
+            # the user with permanently unavailable entities and no prompt.
+            raise ConfigEntryAuthFailed from ex
 
     def handle_websocket_update(self, device_id: str, attrs: dict[str, Any]) -> None:
         """Handle real-time device update from WebSocket.
@@ -72,23 +95,17 @@ class WavespaUpdateCoordinator(DataUpdateCoordinator[WavespaApiResults]):
             return
 
         # A WebSocket s2c_noti delta only contains the fields that changed,
-        # not the full device state. Merge it onto the existing cached attrs
-        # so unmentioned fields (e.g. Time_filter, or any control field an
-        # entity reads) keep their last known value instead of vanishing and
+        # not the full device state. Merging it onto the existing cached attrs
+        # keeps unmentioned fields (e.g. Time_filter, or any control field an
+        # entity reads) at their last known value instead of vanishing and
         # causing KeyErrors or dropped readings.
-        existing = self.api._state_cache.get(device_id)
-        merged_attrs = {**existing.attrs, **attrs} if existing else dict(attrs)
-
-        self.api._state_cache[device_id] = WavespaDeviceStatus(
-            timestamp=int(time()),
-            attrs=merged_attrs,
-        )
+        self.api.merge_device_attrs(device_id, attrs)
 
         # Track last WebSocket update time for this device
         self._ws_last_update[device_id] = time()
 
         # Trigger immediate entity updates
-        self.async_set_updated_data(WavespaApiResults(self.api._state_cache))
+        self.async_set_updated_data(self.api.cached_results())
 
     def handle_websocket_disconnect(self) -> None:
         """Handle WebSocket disconnection.
@@ -97,8 +114,11 @@ class WavespaUpdateCoordinator(DataUpdateCoordinator[WavespaApiResults]):
         WebSocket connection is lost. This ensures the integration
         continues functioning reliably even without real-time updates.
         """
+        if self.update_interval == _POLL_INTERVAL:
+            return
+
         _LOGGER.warning("WebSocket disconnected, reverting to 30-second polling")
-        self.update_interval = timedelta(seconds=30)
+        self.update_interval = _POLL_INTERVAL
 
     def set_websocket_active(self) -> None:
         """Set polling interval for WebSocket-active mode.
@@ -106,6 +126,14 @@ class WavespaUpdateCoordinator(DataUpdateCoordinator[WavespaApiResults]):
         Reduces polling frequency to 5 minutes when WebSocket is providing
         real-time updates. Polling continues as a safety net to catch any
         missed updates or handle WebSocket connection issues.
+
+        Called on every successful connection, not just the first, so that
+        polling drops back down again after the feed recovers from an outage.
+        A flapping connection would otherwise log on every attempt, so the
+        message is only emitted when the interval actually changes.
         """
+        if self.update_interval == _WEBSOCKET_POLL_INTERVAL:
+            return
+
         _LOGGER.info("WebSocket active, reducing polling to 5-minute intervals")
-        self.update_interval = timedelta(seconds=300)
+        self.update_interval = _WEBSOCKET_POLL_INTERVAL

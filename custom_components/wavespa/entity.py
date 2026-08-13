@@ -3,16 +3,21 @@
 from __future__ import annotations
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from . import WavespaUpdateCoordinator
+from .coordinator import WavespaUpdateCoordinator
 from .wavespa.model import WavespaDevice, WavespaDeviceStatus
 from .const import DOMAIN
 
 
 class WavespaEntity(CoordinatorEntity[WavespaUpdateCoordinator]):
     """Wavespa base entity type."""
+
+    # Entity names are relative to the device, so Home Assistant composes the
+    # displayed name as "<spa alias> <entity name>". This also keeps entity IDs
+    # distinct when more than one spa is set up.
+    _attr_has_entity_name = True
 
     def __init__(
         self,
@@ -29,14 +34,34 @@ class WavespaEntity(CoordinatorEntity[WavespaUpdateCoordinator]):
     def device_info(self) -> DeviceInfo:
         """Device information for the spa providing this entity."""
 
-        device_info = self.coordinator.api.devices[self.device_id]
+        # Looked up with .get() rather than indexing. refresh_bindings replaces
+        # the device map wholesale, so a response that omits this device would
+        # otherwise raise from a property the entity registry reads routinely -
+        # noisier than the entity simply going unavailable, which `available`
+        # already handles.
+        device_info = self.wavespa_device
 
-        return DeviceInfo(
+        info = DeviceInfo(
             identifiers={(DOMAIN, self.device_id)},
-            name=device_info.alias,
-            model=device_info.device_type.value,
             manufacturer="Wavespa",
         )
+        if device_info is None:
+            return info
+
+        info["name"] = device_info.alias
+        info["model"] = device_info.device_type.value
+        # Firmware and hardware versions belong on the device page rather than
+        # only as separate diagnostic sensors; the bindings response already
+        # carries them.
+        info["sw_version"] = (
+            f"MCU {device_info.mcu_soft_version} / "
+            f"Wi-Fi {device_info.wifi_soft_version}"
+        )
+        info["hw_version"] = (
+            f"MCU {device_info.mcu_hard_version} / "
+            f"Wi-Fi {device_info.wifi_hard_version}"
+        )
+        return info
 
     @property
     def wavespa_device(self) -> WavespaDevice | None:

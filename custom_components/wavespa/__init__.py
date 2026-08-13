@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from logging import getLogger
 
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
@@ -14,6 +13,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from .wavespa.api import WavespaApi, WavespaAuthException
 from .wavespa.websocket import GizwitsWebSocket
 from .const import (
+    CONFIG_VERSION,
     CONF_API_ROOT,
     CONF_API_ROOT_EU,
     CONF_PASSWORD,
@@ -23,19 +23,18 @@ from .const import (
     CONF_USERNAME,
     DOMAIN,
 )
-from .coordinator import WavespaUpdateCoordinator
+from .coordinator import WavespaConfigEntry, WavespaUpdateCoordinator
 
 _LOGGER = getLogger(__name__)
 _PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
     Platform.CLIMATE,
-    Platform.SELECT,
     Platform.SENSOR,
     Platform.SWITCH,
 ]
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_setup_entry(hass: HomeAssistant, entry: WavespaConfigEntry) -> bool:
     """Set up wavespa from a config entry."""
     username = str(entry.data.get(CONF_USERNAME))
     password = str(entry.data.get(CONF_PASSWORD))
@@ -55,12 +54,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     uid = entry.data.get(CONF_UID)
 
     if user_token and expiry_cutoff < user_token_expiry and uid:
-        _LOGGER.info("Reusing existing access token")
+        _LOGGER.debug("Reusing existing access token")
     else:
         if not uid:
-            _LOGGER.info("UID missing, fetching new token to enable WebSocket")
+            _LOGGER.debug("UID missing, fetching new token to enable WebSocket")
         else:
-            _LOGGER.info("Requesting a new auth token")
+            _LOGGER.debug("Requesting a new auth token")
 
         try:
             token = await WavespaApi.get_user_token(
@@ -110,15 +109,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     ws_port=first_device.ws_port,
                     update_callback=coordinator.handle_websocket_update,
                     disconnect_callback=coordinator.handle_websocket_disconnect,
+                    connect_callback=coordinator.set_websocket_active,
                 )
 
-                # Connect in background
-                hass.async_create_task(ws_client.connect())
+                # Run the supervisor for as long as the entry is loaded. Using
+                # a tracked background task means HA cancels it on unload -
+                # an untracked task would keep reconnecting after a reload,
+                # leaving a zombie client behind for every reload.
+                entry.async_create_background_task(
+                    hass,
+                    ws_client.async_run(),
+                    f"{DOMAIN}-{entry.entry_id}-websocket",
+                )
 
-                # Reduce polling now that WebSocket will provide real-time updates
-                coordinator.set_websocket_active()
-
-                _LOGGER.info("WebSocket client initialized")
+                # Polling deliberately stays at its default rate here. The
+                # client's connect callback slows it down once the feed is
+                # actually live; reducing it eagerly would leave a spa that
+                # never manages to connect on 5-minute polling with no push
+                # updates to make up the difference.
+                _LOGGER.debug("WebSocket client initialized")
             else:
                 _LOGGER.warning("No devices found, WebSocket not initialized")
         except Exception as ex:  # pylint: disable=broad-except
@@ -126,56 +135,69 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 "Failed to setup WebSocket, falling back to polling: %s", ex
             )
     else:
-        _LOGGER.info("No UID in config, WebSocket disabled (polling only)")
+        _LOGGER.debug("No UID in config, WebSocket disabled (polling only)")
 
-    # Store WebSocket on coordinator to avoid data structure change
     coordinator.websocket = ws_client
 
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
+    entry.runtime_data = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, _PLATFORMS)
 
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
     return True
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_unload_entry(hass: HomeAssistant, entry: WavespaConfigEntry) -> bool:
     """Unload a config entry."""
-    coordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator = entry.runtime_data
 
     # Cleanup WebSocket connection before tearing down platforms
-    if hasattr(coordinator, "websocket") and coordinator.websocket:
+    if coordinator.websocket is not None:
         await coordinator.websocket.disconnect()
-        _LOGGER.info("WebSocket client disconnected")
+        _LOGGER.debug("WebSocket client disconnected")
 
     unload_ok: bool = await hass.config_entries.async_unload_platforms(
         entry, _PLATFORMS
     )
-    if unload_ok:
-        hass.data[DOMAIN].pop(entry.entry_id)
 
     return unload_ok
 
 
-async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+async def async_reload_entry(hass: HomeAssistant, entry: WavespaConfigEntry) -> None:
     """Reload config entry."""
-    await async_unload_entry(hass, entry)
-    await async_setup_entry(hass, entry)
+    await hass.config_entries.async_reload(entry.entry_id)
 
 
-async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Migrates old config versions to the latest."""
+async def async_migrate_entry(hass: HomeAssistant, entry: WavespaConfigEntry) -> bool:
+    """Migrate old config versions to the latest.
+
+    Steps are cumulative and each upgrades to the next version, so an entry
+    several versions behind is carried all the way forward. Written this way
+    deliberately: the previous version handled `entry.version == 1` and failed
+    everything else, which was unreachable while the current version was 2 but
+    would have rejected every existing v2 entry the moment a v3 was added.
+    """
 
     _LOGGER.debug("Migrating from version %s", entry.version)
 
-    if entry.version == 1:
+    if entry.version > CONFIG_VERSION:
+        # Downgrades can't be handled - the entry was written by a newer
+        # version of the integration than this one.
+        _LOGGER.error(
+            "Config entry version %s is newer than the supported version %s",
+            entry.version,
+            CONFIG_VERSION,
+        )
+        return False
+
+    data = {**entry.data}
+
+    if entry.version < 2:
         # API root needs to be set
         # In version 1, this was hard coded to the EU endpoint
-        new = {**entry.data}
-        new[CONF_API_ROOT] = CONF_API_ROOT_EU
-        hass.config_entries.async_update_entry(entry, data=new, version=2)
+        data[CONF_API_ROOT] = CONF_API_ROOT_EU
 
-        _LOGGER.info("Migration to version %s successful", entry.version)
-        return True
+    if entry.version < CONFIG_VERSION:
+        hass.config_entries.async_update_entry(entry, data=data, version=CONFIG_VERSION)
+        _LOGGER.debug("Migration to version %s successful", CONFIG_VERSION)
 
-    _LOGGER.error("Existing schema version %s is not supported", entry.version)
-    return False
+    return True

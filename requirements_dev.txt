@@ -1,0 +1,4 @@
+-r requirements.txt
+-r requirements_test.txt
+mypy==2.3.0
+pre-commit==4.6.1

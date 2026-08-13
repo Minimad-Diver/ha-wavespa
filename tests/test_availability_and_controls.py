@@ -3,11 +3,13 @@
 These tests cover:
 - entity.py: available property ignoring unreliable is_online
 - switch.py: optimistic state tracking and confirmation-based clearing
-- climate.py: temperature_unit derived from device type
+- climate.py: temperature_unit derived from device type, and hvac_action
 """
 
 from unittest.mock import MagicMock, AsyncMock, patch
 from typing import Any
+
+import pytest
 
 from custom_components.wavespa.wavespa.model import (
     WavespaDevice,
@@ -136,9 +138,9 @@ class TestSwitchOptimistic:
         from custom_components.wavespa.switch import WavespaSwitchEntityDescription
 
         return WavespaSwitchEntityDescription(
-            key="Heater",
-            name="Heater",
-            value_fn=lambda s: bool(s.attrs["Heater"]),
+            key="Filter",
+            name="Filter",
+            value_fn=lambda s: s.flag("Filter"),
             turn_on_fn=AsyncMock(),
             turn_off_fn=AsyncMock(),
         )
@@ -161,7 +163,7 @@ class TestSwitchOptimistic:
         from custom_components.wavespa.switch import WavespaSwitch
 
         device = _make_device()
-        status = _make_status({"Heater": 0})
+        status = _make_status({"Filter": 0})
         coordinator = _make_coordinator(device, status)
         config_entry = MagicMock()
 
@@ -169,7 +171,7 @@ class TestSwitchOptimistic:
             coordinator, config_entry, "test_device", self._make_desc()
         )
 
-        # Before toggle: switch reads from coordinator (Heater=0 -> off)
+        # Before toggle: switch reads from coordinator (Filter=0 -> off)
         assert switch.is_on is False
 
         # Set optimistic state directly (mirrors what async_turn_on does)
@@ -181,8 +183,8 @@ class TestSwitchOptimistic:
         from custom_components.wavespa.switch import WavespaSwitch
 
         device = _make_device()
-        # Real data agrees with the optimistic value (Heater=1 -> on)
-        status = _make_status({"Heater": 1})
+        # Real data agrees with the optimistic value (Filter=1 -> on)
+        status = _make_status({"Filter": 1})
         coordinator = _make_coordinator(device, status)
         config_entry = MagicMock()
 
@@ -209,8 +211,8 @@ class TestSwitchOptimistic:
         from custom_components.wavespa.switch import WavespaSwitch
 
         device = _make_device()
-        # Real data still shows the OLD value (Heater=0 -> off)
-        status = _make_status({"Heater": 0})
+        # Real data still shows the OLD value (Filter=0 -> off)
+        status = _make_status({"Filter": 0})
         coordinator = _make_coordinator(device, status)
         config_entry = MagicMock()
 
@@ -230,6 +232,171 @@ class TestSwitchOptimistic:
 # ---------------------------------------------------------------------------
 # climate.py: temperature unit from device type
 # ---------------------------------------------------------------------------
+
+
+class TestServiceCallFailures:
+    """API failures must reach the user as HomeAssistantError.
+
+    Anything else surfaces as an unhandled traceback in the log with nothing
+    shown in the UI.
+    """
+
+    def _make_switch(self, turn_on_fn):
+        from custom_components.wavespa.switch import (
+            WavespaSwitch,
+            WavespaSwitchEntityDescription,
+        )
+
+        desc = WavespaSwitchEntityDescription(
+            key="Filter",
+            name="Filter",
+            value_fn=lambda s: s.flag("Filter"),
+            turn_on_fn=turn_on_fn,
+            turn_off_fn=AsyncMock(),
+        )
+        device = _make_device()
+        coordinator = _make_coordinator(device, _make_status({"Filter": 0}))
+        switch = WavespaSwitch(coordinator, MagicMock(), "test_device", desc)
+        switch.hass = MagicMock()
+        switch.async_write_ha_state = MagicMock()
+        switch.entity_id = "switch.test_filter"
+        return switch
+
+    async def test_switch_failure_raises_home_assistant_error(self):
+        from homeassistant.exceptions import HomeAssistantError
+
+        from custom_components.wavespa.wavespa.api import WavespaException
+
+        switch = self._make_switch(AsyncMock(side_effect=WavespaException("boom")))
+
+        with pytest.raises(HomeAssistantError, match="Failed to turn on"):
+            await switch.async_turn_on()
+
+    async def test_switch_failure_clears_optimistic_state(self):
+        """A command that demonstrably failed must not keep showing as applied."""
+        from custom_components.wavespa.wavespa.api import WavespaException
+
+        switch = self._make_switch(AsyncMock(side_effect=WavespaException("boom")))
+
+        with pytest.raises(Exception):
+            await switch.async_turn_on()
+
+        assert switch._optimistic_state is None
+        assert switch.is_on is False
+
+    async def test_climate_failure_raises_home_assistant_error(self):
+        from homeassistant.exceptions import HomeAssistantError
+
+        from custom_components.wavespa.climate import WaveSpaThermostat
+        from custom_components.wavespa.wavespa.api import WavespaException
+
+        device = _make_device()
+        coordinator = _make_coordinator(device, _make_status())
+        coordinator.api.spa_set_heat = AsyncMock(
+            side_effect=WavespaException("device offline")
+        )
+        thermostat = WaveSpaThermostat(coordinator, MagicMock(), "test_device")
+
+        with pytest.raises(HomeAssistantError, match="Failed to set the heating mode"):
+            from homeassistant.components.climate.const import HVACMode
+
+            await thermostat.async_set_hvac_mode(HVACMode.HEAT)
+
+    async def test_climate_set_temperature_failure_raises(self):
+        from homeassistant.const import ATTR_TEMPERATURE
+        from homeassistant.exceptions import HomeAssistantError
+
+        from custom_components.wavespa.climate import WaveSpaThermostat
+        from custom_components.wavespa.wavespa.api import WavespaException
+
+        device = _make_device()
+        coordinator = _make_coordinator(device, _make_status())
+        coordinator.api.spa_set_target_temp = AsyncMock(
+            side_effect=WavespaException("device offline")
+        )
+        thermostat = WaveSpaThermostat(coordinator, MagicMock(), "test_device")
+
+        with pytest.raises(
+            HomeAssistantError, match="Failed to set the target temperature"
+        ):
+            await thermostat.async_set_temperature(**{ATTR_TEMPERATURE: 38})
+
+
+class TestOptimisticExpiry:
+    """The expiry is a timer, not a check performed during coordinator updates.
+
+    Checking on update tied the deadline to the polling interval, which is five
+    minutes while the WebSocket is connected - so the ten seconds the constant
+    promised could be thirty times longer in practice.
+    """
+
+    def _make_switch(self):
+        from custom_components.wavespa.switch import (
+            WavespaSwitch,
+            WavespaSwitchEntityDescription,
+        )
+
+        desc = WavespaSwitchEntityDescription(
+            key="Filter",
+            name="Filter",
+            value_fn=lambda s: s.flag("Filter"),
+            turn_on_fn=AsyncMock(),
+            turn_off_fn=AsyncMock(),
+        )
+        device = _make_device()
+        coordinator = _make_coordinator(device, _make_status({"Filter": 0}))
+        switch = WavespaSwitch(coordinator, MagicMock(), "test_device", desc)
+        switch.hass = MagicMock()
+        switch.async_write_ha_state = MagicMock()
+        return switch
+
+    async def test_timer_is_armed_on_optimistic_set(self):
+        from custom_components.wavespa import switch as switch_module
+
+        switch = self._make_switch()
+        with patch.object(switch_module, "async_call_later") as call_later:
+            await switch.async_turn_on()
+
+        call_later.assert_called_once()
+        assert call_later.call_args[0][1] == switch._OPTIMISTIC_TIMEOUT_SECONDS
+
+    async def test_expiry_reveals_real_state(self):
+        """When the timer fires, the switch falls back to the device's value."""
+        switch = self._make_switch()
+        with patch("custom_components.wavespa.switch.async_call_later"):
+            await switch.async_turn_on()
+
+        assert switch.is_on is True  # optimistic
+        switch._expire_optimistic(None)
+        assert switch._optimistic_state is None
+        assert switch.is_on is False  # the device never applied it
+
+    async def test_confirmation_cancels_the_timer(self):
+        cancel = MagicMock()
+        switch = self._make_switch()
+        with patch(
+            "custom_components.wavespa.switch.async_call_later", return_value=cancel
+        ):
+            await switch.async_turn_on()
+
+        # Device confirms the change
+        switch.status.attrs["Filter"] = 1
+        switch._handle_coordinator_update()
+
+        assert switch._optimistic_state is None
+        cancel.assert_called_once()
+
+    async def test_removal_disarms_the_timer(self):
+        """A pending timer must not fire against a removed entity."""
+        cancel = MagicMock()
+        switch = self._make_switch()
+        with patch(
+            "custom_components.wavespa.switch.async_call_later", return_value=cancel
+        ):
+            await switch.async_turn_on()
+
+        await switch.async_will_remove_from_hass()
+        cancel.assert_called_once()
 
 
 class TestClimateTemperatureUnit:
@@ -284,3 +451,113 @@ class TestClimateTemperatureUnit:
 
         thermostat = self._make_thermostat_no_status()
         assert thermostat.temperature_unit == str(UnitOfTemperature.CELSIUS)
+
+
+# ---------------------------------------------------------------------------
+# climate.py: hvac_action
+# ---------------------------------------------------------------------------
+
+
+class TestClimateHvacAction:
+    """Test the reported running action against heater state and temperature."""
+
+    def _make_thermostat(self, attrs: dict[str, Any] | None):
+        """Create a WaveSpaThermostat whose status carries the given attrs."""
+        from custom_components.wavespa.climate import WaveSpaThermostat
+
+        device = _make_device()
+        status = _make_status(attrs) if attrs is not None else None
+        coordinator = MagicMock()
+        coordinator.api = MagicMock()
+        coordinator.api.devices = {"test_device": device}
+        devices = {"test_device": status} if status is not None else {}
+        coordinator.data = WavespaApiResults(devices=devices)
+        coordinator.last_update_success = True
+        config_entry = MagicMock()
+        return WaveSpaThermostat(coordinator, config_entry, "test_device")
+
+    def test_heating_below_target(self):
+        """Heater on and below the target reports HEATING."""
+        from homeassistant.components.climate.const import HVACAction
+
+        thermostat = self._make_thermostat(
+            {"Heater": 1, "Current_temperature": 30, "Temperature_setup": 40}
+        )
+        assert thermostat.hvac_action == HVACAction.HEATING
+
+    def test_idle_at_target(self):
+        """Heater on and exactly at the target reports IDLE."""
+        from homeassistant.components.climate.const import HVACAction
+
+        thermostat = self._make_thermostat(
+            {"Heater": 1, "Current_temperature": 40, "Temperature_setup": 40}
+        )
+        assert thermostat.hvac_action == HVACAction.IDLE
+
+    def test_idle_above_target(self):
+        """An overshoot past the target reports IDLE, not HEATING."""
+        from homeassistant.components.climate.const import HVACAction
+
+        thermostat = self._make_thermostat(
+            {"Heater": 1, "Current_temperature": 41, "Temperature_setup": 40}
+        )
+        assert thermostat.hvac_action == HVACAction.IDLE
+
+    def test_off_when_heater_off(self):
+        """Heater off reports OFF, not IDLE, regardless of temperature.
+
+        IDLE means "on but not currently calling for heat". Reporting it for a
+        spa with heating switched off contradicted hvac_mode, which correctly
+        returned HVACMode.OFF for the same state.
+        """
+        from homeassistant.components.climate.const import HVACAction
+
+        thermostat = self._make_thermostat(
+            {"Heater": 0, "Current_temperature": 30, "Temperature_setup": 40}
+        )
+        assert thermostat.hvac_action == HVACAction.OFF
+
+    def test_off_when_heater_off_and_at_target(self):
+        """Heater off at target is still OFF rather than IDLE."""
+        from homeassistant.components.climate.const import HVACAction
+
+        thermostat = self._make_thermostat(
+            {"Heater": 0, "Current_temperature": 40, "Temperature_setup": 40}
+        )
+        assert thermostat.hvac_action == HVACAction.OFF
+
+    def test_string_zero_heater_is_off(self):
+        """A string "0" must not read as on.
+
+        bool("0") is True, so reading the flag with bool() reported a spa that
+        was off as heating.
+        """
+        from homeassistant.components.climate.const import HVACAction, HVACMode
+
+        thermostat = self._make_thermostat(
+            {"Heater": "0", "Current_temperature": "30", "Temperature_setup": "40"}
+        )
+        assert thermostat.hvac_action == HVACAction.OFF
+        assert thermostat.hvac_mode == HVACMode.OFF
+
+    def test_string_one_heater_is_heating(self):
+        """String readings still work when the spa is genuinely heating."""
+        from homeassistant.components.climate.const import HVACAction, HVACMode
+
+        thermostat = self._make_thermostat(
+            {"Heater": "1", "Current_temperature": "30", "Temperature_setup": "40"}
+        )
+        assert thermostat.hvac_action == HVACAction.HEATING
+        assert thermostat.hvac_mode == HVACMode.HEAT
+
+    def test_none_when_attrs_missing(self):
+        """Missing temperature attributes report unknown rather than guessing."""
+        status_attrs = {"Heater": 1, "Current_temperature": 30}
+        thermostat = self._make_thermostat(status_attrs)
+        thermostat.status.attrs.pop("Temperature_setup")
+        assert thermostat.hvac_action is None
+
+    def test_none_when_no_status(self):
+        """No status at all reports unknown."""
+        thermostat = self._make_thermostat(None)
+        assert thermostat.hvac_action is None
