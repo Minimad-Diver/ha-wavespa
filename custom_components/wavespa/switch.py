@@ -24,7 +24,7 @@ from .entity import WavespaEntity
 class WavespaSwitchEntityDescription(SwitchEntityDescription):
     """Entity description for switches."""
 
-    value_fn: Callable[[WavespaDeviceStatus], bool]
+    value_fn: Callable[[WavespaDeviceStatus], bool | None]
     turn_on_fn: Callable[[WavespaApi, str], Awaitable[None]]
     turn_off_fn: Callable[[WavespaApi, str], Awaitable[None]]
 
@@ -33,7 +33,7 @@ _SPA_FILTER_SWITCH = WavespaSwitchEntityDescription(
     key="Filter",
     name="Filter",
     icon=Icon.FILTER,
-    value_fn=lambda s: bool(s.attrs["Filter"]),
+    value_fn=lambda s: s.flag("Filter"),
     turn_on_fn=lambda api, device_id: api.spa_set_filter(device_id, True),
     turn_off_fn=lambda api, device_id: api.spa_set_filter(device_id, False),
 )
@@ -42,7 +42,7 @@ _SPA_BUBBLES_SWITCH = WavespaSwitchEntityDescription(
     key="Bubble",
     name="Bubbles",
     icon=Icon.BUBBLES,
-    value_fn=lambda s: bool(s.attrs["Bubble"]),
+    value_fn=lambda s: s.flag("Bubble"),
     turn_on_fn=lambda api, device_id: api.spa_set_bubbles(device_id, True),
     turn_off_fn=lambda api, device_id: api.spa_set_bubbles(device_id, False),
 )

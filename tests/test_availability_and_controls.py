@@ -336,14 +336,52 @@ class TestClimateHvacAction:
         )
         assert thermostat.hvac_action == HVACAction.IDLE
 
-    def test_idle_when_heater_off(self):
-        """Heater off reports IDLE regardless of temperature."""
+    def test_off_when_heater_off(self):
+        """Heater off reports OFF, not IDLE, regardless of temperature.
+
+        IDLE means "on but not currently calling for heat". Reporting it for a
+        spa with heating switched off contradicted hvac_mode, which correctly
+        returned HVACMode.OFF for the same state.
+        """
         from homeassistant.components.climate.const import HVACAction
 
         thermostat = self._make_thermostat(
             {"Heater": 0, "Current_temperature": 30, "Temperature_setup": 40}
         )
-        assert thermostat.hvac_action == HVACAction.IDLE
+        assert thermostat.hvac_action == HVACAction.OFF
+
+    def test_off_when_heater_off_and_at_target(self):
+        """Heater off at target is still OFF rather than IDLE."""
+        from homeassistant.components.climate.const import HVACAction
+
+        thermostat = self._make_thermostat(
+            {"Heater": 0, "Current_temperature": 40, "Temperature_setup": 40}
+        )
+        assert thermostat.hvac_action == HVACAction.OFF
+
+    def test_string_zero_heater_is_off(self):
+        """A string "0" must not read as on.
+
+        bool("0") is True, so reading the flag with bool() reported a spa that
+        was off as heating.
+        """
+        from homeassistant.components.climate.const import HVACAction, HVACMode
+
+        thermostat = self._make_thermostat(
+            {"Heater": "0", "Current_temperature": "30", "Temperature_setup": "40"}
+        )
+        assert thermostat.hvac_action == HVACAction.OFF
+        assert thermostat.hvac_mode == HVACMode.OFF
+
+    def test_string_one_heater_is_heating(self):
+        """String readings still work when the spa is genuinely heating."""
+        from homeassistant.components.climate.const import HVACAction, HVACMode
+
+        thermostat = self._make_thermostat(
+            {"Heater": "1", "Current_temperature": "30", "Temperature_setup": "40"}
+        )
+        assert thermostat.hvac_action == HVACAction.HEATING
+        assert thermostat.hvac_mode == HVACMode.HEAT
 
     def test_none_when_attrs_missing(self):
         """Missing temperature attributes report unknown rather than guessing."""

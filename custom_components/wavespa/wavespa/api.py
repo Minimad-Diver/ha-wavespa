@@ -80,20 +80,27 @@ async def _raise_for_status(response: ClientResponse) -> None:
 
     # The API often provides useful error descriptions in JSON format
     if response.content_type == "application/json":
+        # A body that won't parse just means we fall through to the generic
+        # raise below. The result is bound to None rather than left unset:
+        # the previous version called raise_for_status() inside the handler
+        # and then read api_error anyway, which was only safe because that
+        # call always raises for a non-ok response.
+        api_error: dict[str, Any] | None
         try:
             api_error = await response.json()
         except Exception:  # pylint: disable=broad-except
-            response.raise_for_status()
+            api_error = None
 
-        error_code = api_error.get("error_code", 0)
-        if error_code == 9004:
-            raise WavespaTokenInvalidException()
-        if error_code == 9005:
-            raise WavespaUserDoesNotExistException()
-        if error_code == 9042:
-            raise WavespaOfflineException()
-        if error_code == 9020:
-            raise WavespaIncorrectPasswordException()
+        if api_error is not None:
+            error_code = api_error.get("error_code", 0)
+            if error_code == 9004:
+                raise WavespaTokenInvalidException()
+            if error_code == 9005:
+                raise WavespaUserDoesNotExistException()
+            if error_code == 9042:
+                raise WavespaOfflineException()
+            if error_code == 9020:
+                raise WavespaIncorrectPasswordException()
 
     # If we can't pull out a Wavespa error code, provide more detail for debugging
     response.raise_for_status()

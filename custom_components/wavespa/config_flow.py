@@ -21,6 +21,7 @@ from .wavespa.api import (
     WavespaUserDoesNotExistException,
 )
 from .const import (
+    CONFIG_VERSION,
     CONF_API_ROOT,
     CONF_API_ROOT_EU,
     CONF_API_ROOT_US,
@@ -80,7 +81,7 @@ async def validate_input(
 class WavespaConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for wavespa."""
 
-    VERSION = 2
+    VERSION = CONFIG_VERSION
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None

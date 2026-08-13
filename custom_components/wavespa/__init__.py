@@ -14,6 +14,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from .wavespa.api import WavespaApi, WavespaAuthException
 from .wavespa.websocket import GizwitsWebSocket
 from .const import (
+    CONFIG_VERSION,
     CONF_API_ROOT,
     CONF_API_ROOT_EU,
     CONF_PASSWORD,
@@ -171,19 +172,36 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Migrates old config versions to the latest."""
+    """Migrate old config versions to the latest.
+
+    Steps are cumulative and each upgrades to the next version, so an entry
+    several versions behind is carried all the way forward. Written this way
+    deliberately: the previous version handled `entry.version == 1` and failed
+    everything else, which was unreachable while the current version was 2 but
+    would have rejected every existing v2 entry the moment a v3 was added.
+    """
 
     _LOGGER.debug("Migrating from version %s", entry.version)
 
-    if entry.version == 1:
+    if entry.version > CONFIG_VERSION:
+        # Downgrades can't be handled - the entry was written by a newer
+        # version of the integration than this one.
+        _LOGGER.error(
+            "Config entry version %s is newer than the supported version %s",
+            entry.version,
+            CONFIG_VERSION,
+        )
+        return False
+
+    data = {**entry.data}
+
+    if entry.version < 2:
         # API root needs to be set
         # In version 1, this was hard coded to the EU endpoint
-        new = {**entry.data}
-        new[CONF_API_ROOT] = CONF_API_ROOT_EU
-        hass.config_entries.async_update_entry(entry, data=new, version=2)
+        data[CONF_API_ROOT] = CONF_API_ROOT_EU
 
-        _LOGGER.info("Migration to version %s successful", entry.version)
-        return True
+    if entry.version < CONFIG_VERSION:
+        hass.config_entries.async_update_entry(entry, data=data, version=CONFIG_VERSION)
+        _LOGGER.debug("Migration to version %s successful", CONFIG_VERSION)
 
-    _LOGGER.error("Existing schema version %s is not supported", entry.version)
-    return False
+    return True

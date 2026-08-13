@@ -87,7 +87,6 @@ class DeviceConnectivitySensor(WavespaEntity, BinarySensorEntity):
     ) -> None:
         """Initialize sensor."""
         self.entity_description = entity_description
-        self._attr_entity_category = EntityCategory.DIAGNOSTIC
         self._attr_unique_id = f"{device_id}_{self.entity_description.key}"
         super().__init__(
             coordinator,
@@ -118,7 +117,6 @@ class DeviceErrorsSensor(WavespaEntity, BinarySensorEntity):
     ) -> None:
         """Initialize sensor."""
         self.entity_description = entity_description
-        self._attr_entity_category = EntityCategory.DIAGNOSTIC
         self._attr_unique_id = f"{device_id}_{self.entity_description.key}"
         super().__init__(
             coordinator,

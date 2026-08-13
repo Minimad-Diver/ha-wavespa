@@ -3,6 +3,11 @@
 from enum import Enum
 
 DOMAIN = "wavespa"
+
+# Current config entry schema version. Lives here rather than only on the
+# config flow so async_migrate_entry can bound its migration steps without
+# importing the flow.
+CONFIG_VERSION = 2
 CONF_USERNAME = "username"
 CONF_PASSWORD = "password"
 CONF_API_ROOT = "apiroot"

@@ -37,7 +37,6 @@ def _estimate_watts(status: WavespaDeviceStatus | None) -> int:
     if status is None:
         return 0
 
-    attrs = status.attrs
     watts = 0
 
     # Heater == 1 only means heating is enabled - the element cycles off once
@@ -49,12 +48,12 @@ def _estimate_watts(status: WavespaDeviceStatus | None) -> int:
         watts += ESTIMATED_HEATER_WATTS
 
     # Filter pump is active when Filter == 1.
-    if int(attrs.get("Filter") or 0) == 1:
+    if status.flag("Filter"):
         watts += ESTIMATED_FILTER_WATTS
 
     # Bubbles are active when Bubble is non-zero (some models report a
     # level rather than a simple on/off).
-    if int(attrs.get("Bubble") or 0) > 0:
+    if status.flag("Bubble"):
         watts += ESTIMATED_BUBBLES_WATTS
 
     return watts

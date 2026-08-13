@@ -12,7 +12,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import WavespaUpdateCoordinator
-from .wavespa.model import WavespaDeviceType
+from .wavespa.model import WavespaDeviceType, as_int
 from .const import DOMAIN
 from .entity import WavespaEntity
 
@@ -76,16 +76,25 @@ class WaveSpaThermostat(WavespaEntity, ClimateEntity):
         """Return the current mode (HEAT or OFF)."""
         if not self.status:
             return None
-        heater = self.status.attrs.get("Heater")
+        heater = self.status.flag("Heater")
         if heater is None:
             return None
         return HVACMode.HEAT if heater else HVACMode.OFF
 
     @property
     def hvac_action(self) -> HVACAction | None:
-        """Return the current running action (HEATING or IDLE)."""
+        """Return the current running action (OFF, HEATING or IDLE)."""
         if not self.status:
             return None
+
+        # Heating switched off entirely is OFF, matching hvac_mode. IDLE is
+        # reserved for "on, but not currently calling for heat".
+        heater = self.status.flag("Heater")
+        if heater is None:
+            return None
+        if not heater:
+            return HVACAction.OFF
+
         heating = self.status.is_heating
         if heating is None:
             return None
@@ -96,26 +105,25 @@ class WaveSpaThermostat(WavespaEntity, ClimateEntity):
         """Return the current temperature."""
         if not self.status:
             return None
-        current = self.status.attrs.get("Current_temperature")
-        return int(current) if current is not None else None
+        return as_int(self.status.attrs.get("Current_temperature"))
 
     @property
     def target_temperature(self) -> float | None:
         """Return the temperature we try to reach."""
         if not self.status:
             return None
-        target = self.status.attrs.get("Temperature_setup")
-        return int(target) if target is not None else None
+        return as_int(self.status.attrs.get("Temperature_setup"))
 
     @property
     def temperature_unit(self) -> str:
         """Return the unit of measurement used by the platform."""
-        if not self.status:
-            return str(UnitOfTemperature.CELSIUS)
-        device_type = self.coordinator.api.devices[self.device_id].device_type
-        if device_type == WavespaDeviceType.WAVESPA_US:
+        # Looked up with .get() rather than indexing: a bindings refresh that
+        # omits the device would otherwise raise from a property Home Assistant
+        # reads routinely.
+        device = self.wavespa_device
+        if device is not None and device.device_type == WavespaDeviceType.WAVESPA_US:
             return str(UnitOfTemperature.FAHRENHEIT)
-        # Default to Celsius for other device types
+        # Default to Celsius for other (and unknown) device types
         return str(UnitOfTemperature.CELSIUS)
 
     @property

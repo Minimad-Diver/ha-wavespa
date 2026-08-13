@@ -37,6 +37,22 @@ class TemperatureUnit(Enum):
 _TIME_FILTER_MAX = 10200
 
 
+def as_int(value: Any) -> int | None:
+    """Coerce an attribute to int, returning None if it isn't numeric.
+
+    The API is not consistent about types, and the difference matters: a
+    string "0" is truthy in Python, so reading an on/off flag with bool()
+    reports a spa that is off as running. Everything that interprets an
+    attribute goes through here so the whole integration agrees.
+    """
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 @dataclass
 class WavespaDeviceStatus:
     """A snapshot of the status of a spa device."""
@@ -53,11 +69,20 @@ class WavespaDeviceStatus:
         attrs (which the coordinator merges across WebSocket deltas), the
         value persists even when a partial update omits Time_filter.
         """
-        raw = self.attrs.get("Time_filter")
+        raw = as_int(self.attrs.get("Time_filter"))
         if raw is None:
             return None
         percent = 100 - ((raw / _TIME_FILTER_MAX) * 100)
         return max(0, min(100, int(percent)))
+
+    def flag(self, name: str) -> bool | None:
+        """Return an on/off attribute as a bool, or None if absent or unusable.
+
+        Anything non-zero counts as on, so this also covers the attributes that
+        report a level rather than a simple on/off (e.g. Bubble).
+        """
+        value = as_int(self.attrs.get(name))
+        return None if value is None else value != 0
 
     @property
     def is_heating(self) -> bool | None:
@@ -65,16 +90,17 @@ class WavespaDeviceStatus:
 
         The spa reports Heater == 1 whenever heating is *enabled*, including
         while it sits at temperature doing nothing, so the target has to be
-        checked too. Returns None if any of the three readings are missing.
+        checked too. Returns None if any of the three readings are missing or
+        cannot be read as numbers.
         """
-        heat_on = self.attrs.get("Heater")
-        target = self.attrs.get("Temperature_setup")
-        current = self.attrs.get("Current_temperature")
+        heat_on = self.flag("Heater")
+        target = as_int(self.attrs.get("Temperature_setup"))
+        current = as_int(self.attrs.get("Current_temperature"))
         if heat_on is None or target is None or current is None:
             return None
         # Use >= for "reached" so an overshoot (e.g. 41 °C against a 40 °C
         # target) still counts, rather than heating indefinitely.
-        return bool(heat_on) and int(current) < int(target)
+        return heat_on and current < target
 
 
 @dataclass

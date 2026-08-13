@@ -34,14 +34,23 @@ class WavespaEntity(CoordinatorEntity[WavespaUpdateCoordinator]):
     def device_info(self) -> DeviceInfo:
         """Device information for the spa providing this entity."""
 
-        device_info = self.coordinator.api.devices[self.device_id]
+        # Looked up with .get() rather than indexing. refresh_bindings replaces
+        # the device map wholesale, so a response that omits this device would
+        # otherwise raise from a property the entity registry reads routinely -
+        # noisier than the entity simply going unavailable, which `available`
+        # already handles.
+        device_info = self.wavespa_device
 
-        return DeviceInfo(
+        info = DeviceInfo(
             identifiers={(DOMAIN, self.device_id)},
-            name=device_info.alias,
-            model=device_info.device_type.value,
             manufacturer="Wavespa",
         )
+        if device_info is None:
+            return info
+
+        info["name"] = device_info.alias
+        info["model"] = device_info.device_type.value
+        return info
 
     @property
     def wavespa_device(self) -> WavespaDevice | None:
