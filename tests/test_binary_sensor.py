@@ -97,6 +97,25 @@ class TestErrorMatching:
         assert sensor.is_on is False
         assert "E123" not in sensor.extra_state_attributes
 
+    def test_string_zero_is_not_an_error(self) -> None:
+        """bool("0") is True, so a string-typed clear flag looked like a fault."""
+        sensor = _make_errors_sensor({"E01": "0", "system_err1": "0", "earth": "0"})
+        assert sensor.is_on is False
+        assert sensor.extra_state_attributes == {
+            "system_err1": False,
+            "earth": False,
+            "E01": False,
+        }
+
+    def test_string_one_is_an_error(self) -> None:
+        sensor = _make_errors_sensor({"E01": "1"})
+        assert sensor.is_on is True
+
+    def test_unreadable_value_is_not_an_error(self) -> None:
+        """An unparseable reading must not invent a fault."""
+        sensor = _make_errors_sensor({"E01": "unknown"})
+        assert sensor.is_on is False
+
     def test_unrelated_attributes_are_ignored(self) -> None:
         sensor = _make_errors_sensor(
             {"Heater": 1, "Filter": 1, "Temperature_setup": 40, "Everything": 1}

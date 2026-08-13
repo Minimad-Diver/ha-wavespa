@@ -123,34 +123,41 @@ class DeviceErrorsSensor(WavespaEntity, BinarySensorEntity):
         )
 
     def _all_error_properties(self) -> dict[str, bool]:
-        """Get all error properties from the device status."""
+        """Get all error properties from the device status.
+
+        Flags are read through status.flag() rather than bool(), for the same
+        reason as everywhere else: bool("0") is True, so a spa reporting its
+        error codes as strings would raise a fault that is not there. An
+        unreadable value counts as no error rather than as a fault.
+        """
         errors: dict[str, bool] = {}
 
-        if not self.status:
+        status = self.status
+        if not status:
             return errors
 
         # error properties
-        for attr in self.status.attrs:
+        for attr in status.attrs:
             if re.fullmatch(r"system_err\d+", attr):
-                errors[attr] = bool(self.status.attrs[attr])
+                errors[attr] = status.flag(attr) is True
 
         # ground fault
-        if "earth" in self.status.attrs:
-            errors["earth"] = bool(self.status.attrs["earth"])
+        if "earth" in status.attrs:
+            errors["earth"] = status.flag("earth") is True
 
         # spa error properties
-        for attr in self.status.attrs:
+        for attr in status.attrs:
             # E32: Not actually an error. This means heating is on but the spa has
             #      already reached the desired temperature.
             if attr == "E32":
                 continue
 
             if re.fullmatch(r"E\d{2}", attr):
-                errors[attr] = bool(self.status.attrs[attr])
+                errors[attr] = status.flag(attr) is True
 
         # Pool filter
-        if "error" in self.status.attrs:
-            errors["error"] = bool(self.status.attrs["error"])
+        if "error" in status.attrs:
+            errors["error"] = status.flag("error") is True
 
         return errors
 
