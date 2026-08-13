@@ -5,7 +5,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 import json
 from logging import getLogger
-from time import time
+from time import monotonic, time
 
 from typing import Any
 
@@ -27,6 +27,12 @@ _HEADERS = {
     "Connection": "Keep-Alive",
 }
 _TIMEOUT = 10
+
+# How long a control command suppresses polls for that device. A GET issued
+# straight after a POST still returns the old values, so the local write is
+# trusted for this long. Measured on the monotonic clock, so it is immune to
+# host clock skew and to the API and host disagreeing about the time.
+_LOCAL_WRITE_SETTLE_SECONDS = 15
 
 
 @dataclass
@@ -127,6 +133,10 @@ class WavespaApi:
         # more recent than the local update.
         self._state_cache: dict[str, WavespaDeviceStatus] = {}
 
+        # Monotonic timestamp of the last local (control-command) write per
+        # device, used to suppress polls that would report pre-command state.
+        self._local_writes: dict[str, float] = {}
+
     @staticmethod
     async def get_user_token(
         session: ClientSession, username: str, password: str, api_root: str
@@ -196,17 +206,21 @@ class WavespaApi:
                 _LOGGER.debug("No data available for device %s", did)
                 continue
 
-            # Work out whether the received API update is more recent than the
-            # locally cached state
-            local_update_timestamp = 0
-            cached_state: WavespaDeviceStatus | None
-            if cached_state := self._state_cache.get(did):
-                local_update_timestamp = cached_state.timestamp
+            cached_state: WavespaDeviceStatus | None = self._state_cache.get(did)
 
-            # If the API timestamp is more recent, update the cache
-            if api_update_timestamp < local_update_timestamp:
+            # A poll that raced a control command we just sent would report the
+            # pre-command state, so a local write suppresses polls briefly.
+            #
+            # The window is measured on the local monotonic clock rather than by
+            # comparing the API's updated_at against a locally stamped
+            # timestamp. Those are two different clocks, and the old comparison
+            # discarded every poll for as long as the host clock ran ahead of
+            # the Gizwits server - indefinitely on a host with no working NTP,
+            # which silently left the WebSocket as the only source of state.
+            if self._local_write_is_recent(did):
                 _LOGGER.debug(
-                    "Ignoring update for device %s as local data is newer", did
+                    "Ignoring poll for device %s; a local change is still settling",
+                    did,
                 )
                 continue
 
@@ -248,6 +262,13 @@ class WavespaApi:
         """Return a snapshot of the cached state for every known device."""
         return WavespaApiResults(self._state_cache)
 
+    def _local_write_is_recent(self, device_id: str) -> bool:
+        """Return True if we changed this device within the settle window."""
+        written_at = self._local_writes.get(device_id)
+        if written_at is None:
+            return False
+        return (monotonic() - written_at) < _LOCAL_WRITE_SETTLE_SECONDS
+
     def merge_device_attrs(self, device_id: str, attrs: dict[str, Any]) -> None:
         """
         Merge a partial attribute delta into a device's cached state.
@@ -283,8 +304,13 @@ class WavespaApi:
         on an orphan and silently drop the change we just made - most visibly
         for target temperature, which has no optimistic overlay in the UI to
         paper over it.
+
+        Also records the write on the monotonic clock, so fetch_data can skip
+        polls that would report the pre-command state without having to compare
+        the API's clock against ours.
         """
         self.merge_device_attrs(device_id, attrs)
+        self._local_writes[device_id] = monotonic()
 
     async def spa_set_filter(self, device_id: str, filtering: bool) -> None:
         """

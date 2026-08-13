@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
+from logging import getLogger
 from typing import Any
 
 from homeassistant.components.sensor import (
@@ -26,9 +27,17 @@ from .const import Icon
 from .entity import WavespaEntity
 from .wavespa.model import WavespaDevice, WavespaDeviceStatus, WavespaDeviceType
 
+_LOGGER = getLogger(__name__)
+
 ESTIMATED_HEATER_WATTS = 1800
 ESTIMATED_BUBBLES_WATTS = 600
 ESTIMATED_FILTER_WATTS = 50
+
+# The longest gap between coordinator updates that the energy estimate will
+# attribute to the last known wattage. Comfortably above the 5-minute
+# WebSocket-active poll interval, so normal operation is unaffected, while an
+# outage of hours is not silently booked as steady consumption.
+_MAX_INTEGRATION_STEP = timedelta(minutes=15)
 
 
 def _estimate_watts(status: WavespaDeviceStatus | None) -> int:
@@ -354,12 +363,35 @@ class EstimatedEnergySensor(EstimatedAssumptionsMixin, WavespaEntity, RestoreSen
 
     @callback
     def _handle_coordinator_update(self) -> None:
-        """Integrate elapsed time at the previous wattage, then advance."""
+        """Integrate elapsed time at the previous wattage, then advance.
+
+        Home Assistant stops notifying listeners after the first of a run of
+        consecutive coordinator failures, so an outage produces no updates at
+        all until it ends. Integrating the whole gap on recovery would book the
+        entire outage at whatever the spa was drawing before it went quiet - a
+        spa heating at 2450 W that drops off for eight hours would add nearly
+        20 kWh in one step, whether or not it drew anything.
+
+        So a step longer than _MAX_INTEGRATION_STEP is not counted: we do not
+        know what happened during it, and under-reporting is the honest
+        failure. A step is also skipped entirely while the coordinator is
+        failing, since the reading it would use is already stale.
+        """
         now = dt_util.utcnow()
 
-        if self._last_update is not None:
-            elapsed_hours = (now - self._last_update).total_seconds() / 3600
-            self._energy_kwh += self._last_watts * elapsed_hours / 1000
+        if self._last_update is not None and self.coordinator.last_update_success:
+            elapsed = now - self._last_update
+            if elapsed <= _MAX_INTEGRATION_STEP:
+                self._energy_kwh += (
+                    self._last_watts * (elapsed.total_seconds() / 3600) / 1000
+                )
+            else:
+                _LOGGER.debug(
+                    "Skipping %s gap in estimated energy for %s; too long to "
+                    "attribute to the last known wattage",
+                    elapsed,
+                    self.device_id,
+                )
 
         self._last_update = now
         self._last_watts = _estimate_watts(self.status)

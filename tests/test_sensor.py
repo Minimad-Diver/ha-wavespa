@@ -239,8 +239,8 @@ class TestEstimatedEnergySensor:
         sensor = self._make_sensor({"Heater": 1, "Filter": 0, "Bubble": 0})
 
         t0 = datetime(2026, 1, 1, tzinfo=timezone.utc)
-        t1 = t0 + timedelta(hours=2)
-        t2 = t1 + timedelta(hours=1)
+        t1 = t0 + timedelta(minutes=10)
+        t2 = t1 + timedelta(minutes=5)
 
         with (
             patch(
@@ -252,16 +252,86 @@ class TestEstimatedEnergySensor:
             sensor._last_update = t0
             sensor._last_watts = ESTIMATED_HEATER_WATTS
 
-            # First update: 2 hours elapsed at ESTIMATED_HEATER_WATTS.
+            # First update: 10 minutes elapsed at ESTIMATED_HEATER_WATTS.
             sensor._handle_coordinator_update()
-            expected = ESTIMATED_HEATER_WATTS * 2 / 1000
+            expected = ESTIMATED_HEATER_WATTS * (10 / 60) / 1000
             assert sensor.native_value == round(expected, 3)
 
-            # Second update: 1 more hour elapsed, still at ESTIMATED_HEATER_WATTS
-            # (status attrs unchanged).
+            # Second update: 5 more minutes elapsed, still at
+            # ESTIMATED_HEATER_WATTS (status attrs unchanged).
             sensor._handle_coordinator_update()
-            expected += ESTIMATED_HEATER_WATTS * 1 / 1000
+            expected += ESTIMATED_HEATER_WATTS * (5 / 60) / 1000
             assert sensor.native_value == round(expected, 3)
+
+    def test_outage_is_not_backfilled(self):
+        """A long gap is not booked at the pre-outage wattage.
+
+        Home Assistant stops notifying listeners after the first of a run of
+        consecutive coordinator failures, so an outage produces no updates and
+        then one update on recovery. Integrating that whole gap would add the
+        entire outage at whatever the spa was drawing before it went quiet - a
+        spa heating at 2450 W offline for 8 hours would book nearly 20 kWh in
+        one step, whether or not it drew anything.
+        """
+        sensor = self._make_sensor({"Heater": 1, "Filter": 1, "Bubble": 1})
+
+        t0 = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        recovery = t0 + timedelta(hours=8)
+
+        with (
+            patch(
+                "custom_components.wavespa.sensor.dt_util.utcnow",
+                return_value=recovery,
+            ),
+            patch.object(sensor, "async_write_ha_state"),
+        ):
+            sensor._last_update = t0
+            sensor._last_watts = 2450
+
+            sensor._handle_coordinator_update()
+
+        assert sensor.native_value == 0.0
+
+    def test_no_accrual_while_the_coordinator_is_failing(self):
+        """The first failed update must not accrue at a now-stale reading."""
+        sensor = self._make_sensor({"Heater": 1})
+        sensor.coordinator.last_update_success = False
+
+        t0 = datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+        with (
+            patch(
+                "custom_components.wavespa.sensor.dt_util.utcnow",
+                return_value=t0 + timedelta(minutes=5),
+            ),
+            patch.object(sensor, "async_write_ha_state"),
+        ):
+            sensor._last_update = t0
+            sensor._last_watts = ESTIMATED_HEATER_WATTS
+
+            sensor._handle_coordinator_update()
+
+        assert sensor.native_value == 0.0
+
+    def test_gap_at_the_cap_still_counts(self):
+        """The normal 5-minute poll interval is well inside the cap."""
+        sensor = self._make_sensor({"Heater": 1, "Filter": 0, "Bubble": 0})
+
+        t0 = datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+        with (
+            patch(
+                "custom_components.wavespa.sensor.dt_util.utcnow",
+                return_value=t0 + timedelta(minutes=5),
+            ),
+            patch.object(sensor, "async_write_ha_state"),
+        ):
+            sensor._last_update = t0
+            sensor._last_watts = ESTIMATED_HEATER_WATTS
+
+            sensor._handle_coordinator_update()
+
+        assert sensor.native_value == round(ESTIMATED_HEATER_WATTS * (5 / 60) / 1000, 3)
 
     def test_no_integration_on_first_update_without_prior_timestamp(self):
         """Nothing accumulates if _last_update was never set (no prior baseline)."""

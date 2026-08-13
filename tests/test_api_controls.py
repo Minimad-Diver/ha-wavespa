@@ -10,8 +10,9 @@ These tests pin down which side effects each setter is allowed to have:
 - the bubbles are independent of both
 """
 
+import time
 from typing import Any, cast
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -217,6 +218,48 @@ class TestControlWritesSurviveConcurrentPush:
         await api.spa_set_filter(_DEVICE_ID, True)
 
         assert _attrs(api)["Filter"] == 1
+
+
+class TestPollSuppressionUsesMonotonicClock:
+    """Polls are suppressed by a local monotonic window, not by clock comparison.
+
+    The old rule compared the API's server-side `updated_at` against a locally
+    stamped timestamp. Those are two different clocks, so a host running ahead
+    of the Gizwits server discarded every poll for as long as the skew lasted -
+    indefinitely on a host with no working NTP, silently leaving the WebSocket
+    as the only source of state.
+    """
+
+    async def test_recent_local_write_suppresses_poll(self) -> None:
+        api = _make_api({"Filter": 0})
+        await api.spa_set_filter(_DEVICE_ID, True)
+        assert api._local_write_is_recent(_DEVICE_ID) is True
+
+    async def test_window_expires(self) -> None:
+        from custom_components.wavespa.wavespa import api as api_module
+
+        api = _make_api({"Filter": 0})
+        await api.spa_set_filter(_DEVICE_ID, True)
+
+        written_at = api._local_writes[_DEVICE_ID]
+        with patch.object(
+            api_module,
+            "monotonic",
+            return_value=written_at + api_module._LOCAL_WRITE_SETTLE_SECONDS + 1,
+        ):
+            assert api._local_write_is_recent(_DEVICE_ID) is False
+
+    async def test_untouched_device_is_never_suppressed(self) -> None:
+        api = _make_api()
+        assert api._local_write_is_recent(_DEVICE_ID) is False
+
+    async def test_host_clock_skew_does_not_suppress_polls(self) -> None:
+        """A host clock hours ahead of the server must not block polling."""
+        api = _make_api({"Filter": 0})
+        # Cached state stamped far in the future, as a skewed host would.
+        api._state_cache[_DEVICE_ID].timestamp = int(time.time()) + 86_400
+
+        assert api._local_write_is_recent(_DEVICE_ID) is False
 
 
 class TestMergeDeviceAttrs:
