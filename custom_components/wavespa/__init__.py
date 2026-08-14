@@ -33,16 +33,15 @@ _LOGGER = getLogger(__name__)
 # provided, so without this they linger as "unavailable" forever and the user
 # has to delete each one by hand.
 #
-# Only ever add to this list. Removing an entry does not resurrect the entity -
-# it just stops the cleanup happening for anyone who has not upgraded yet.
+# Only ever add to this list, with one exception: an entry must be removed if
+# the entity is ever reinstated, or setup would delete it moments before the
+# platform recreates it - on every restart, discarding the user's history and
+# customisations each time. That is why _spa_has_error is absent: the alerts
+# sensor reuses its unique ID.
 _OBSOLETE_UNIQUE_ID_SUFFIXES = (
     # Removed in cddb92a: WaveSpa hardware has no power button, so a switch
     # writing the Heater field duplicated the thermostat.
     "_Heater",
-    # Removed for #50: the fault attributes it matched (system_err*, E##,
-    # earth, error) are Bestway heritage and a Wave_SPA_EU reports none of
-    # them, so it could never turn on.
-    "_spa_has_error",
     # Removed for #47: superseded by sw_version/hw_version on the device.
     "_mcu_soft_version",
     "_mcu_hard_version",

@@ -43,6 +43,9 @@
     "binary_sensor": {
       "spa_connected": {
         "name": "Connected"
+      },
+      "spa_has_error": {
+        "name": "Alerts"
       }
     },
     "climate": {
