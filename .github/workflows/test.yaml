@@ -62,7 +62,7 @@ jobs:
             --durations=10 \
             -n auto \
             --cov custom_components.wavespa \
-            --cov-fail-under=80 \
+            --cov-fail-under=95 \
             -o console_output_style=count \
             -p no:sugar \
             tests

@@ -315,3 +315,18 @@ async def test_unchanged_online_status_does_not_notify(hass: HomeAssistant):
 
         coordinator.handle_websocket_online_status("device1", False)
         notify.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_update_for_unrecognised_device_is_ignored(hass: HomeAssistant):
+    """A push for a device we do not know must not create cache state."""
+    config_entry = MockConfigEntry(
+        domain=DOMAIN, data={CONF_API_ROOT: CONF_API_ROOT_EU}, entry_id="test"
+    )
+    api = _make_api("device1")
+    coordinator = WavespaUpdateCoordinator(hass, config_entry, api)
+
+    coordinator.handle_websocket_update("unknown-device", {"Heater": 1})
+
+    assert "unknown-device" not in _cached(api)
+    assert "unknown-device" not in coordinator._ws_last_update
