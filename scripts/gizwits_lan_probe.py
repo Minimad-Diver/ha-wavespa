@@ -39,6 +39,11 @@ DISCOVERY_PORT = 12414
 CONTROL_PORT = 12416
 DISCOVERY_REQUEST = b"\x00\x00\x00\x03\x03\x00\x00\x03"
 
+# The transport envelope is version 3. Do not be tempted by the product
+# definition's "packetVersion": "0x00000004" - that describes the datapoint
+# payload format, a different layer. Tested against a real spa with the
+# prefix swapped to \x00\x00\x00\x04: no reply at all, across repeated runs
+# in both orders, while version 3 answered every time.
 PROTOCOL_PREFIX = b"\x00\x00\x00\x03"
 
 # A Gizwits product key is 32 lowercase hex characters. Distinctive enough to
