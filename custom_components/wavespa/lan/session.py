@@ -36,6 +36,7 @@ from .framing import (
     CMD_PING,
     CMD_STATUS,
     CMD_STATUS_RESPONSE,
+    P0_READ,
     Frame,
     FramingError,
     pack,
@@ -211,8 +212,13 @@ class GizwitsLanSession:
         await self._teardown()
 
     async def request_status(self) -> dict[str, Any]:
-        """Ask for a full status report and return the decoded attributes."""
-        frame = await self._request(CMD_STATUS, CMD_STATUS_RESPONSE)
+        """Ask for a full status report and return the decoded attributes.
+
+        The P0_READ byte is required. Without it the device says nothing at
+        all - no error, no NAK - while still answering pings on the same
+        connection, which is indistinguishable from a wrong command code.
+        """
+        frame = await self._request(CMD_STATUS, CMD_STATUS_RESPONSE, bytes([P0_READ]))
         return self._handle_status(frame)
 
     async def _serve(self) -> None:

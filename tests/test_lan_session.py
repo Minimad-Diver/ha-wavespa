@@ -21,6 +21,7 @@ from custom_components.wavespa.lan.framing import (
     CMD_PING,
     CMD_STATUS,
     CMD_STATUS_RESPONSE,
+    P0_READ,
     pack,
     split_stream,
 )
@@ -99,6 +100,11 @@ class FakeDevice:
                 self._reply(CMD_LOGIN_RESPONSE, bytes([self.login_result]))
             elif frame.cmd == CMD_STATUS:
                 self.status_requests += 1
+                if frame.payload[:1] != bytes([P0_READ]):
+                    # A real spa says nothing at all to a request with no p0
+                    # action byte. Silence here rather than a helpful error,
+                    # because silence is what the hardware does.
+                    continue
                 if self.answer_status:
                     self._reply(CMD_STATUS_RESPONSE, STATUS_PAYLOAD)
             elif frame.cmd == CMD_PING:
@@ -167,6 +173,20 @@ class TestHandshake:
         login = next(f for f in frames if f.cmd == 0x0008)
 
         assert login.payload == len(PASSCODE).to_bytes(2, "big") + PASSCODE
+        await session.disconnect()
+
+    async def test_status_request_carries_the_p0_read_byte(
+        self, schema: DatapointSchema
+    ) -> None:
+        """Without it the spa ignores the request entirely - no error, nothing."""
+        device = FakeDevice()
+        session, _ = make_session(schema, device)
+
+        await session.connect()
+        frames, _ = split_stream(b"".join(device.writer.sent))
+        status = next(f for f in frames if f.cmd == CMD_STATUS)
+
+        assert status.payload == bytes([P0_READ])
         await session.disconnect()
 
     async def test_initial_status_primes_the_cache(

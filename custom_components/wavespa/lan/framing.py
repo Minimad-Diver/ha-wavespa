@@ -34,6 +34,21 @@ CMD_STATUS_RESPONSE = 0x0091
 CMD_WRITE = 0x0093
 CMD_WRITE_ACK = 0x0094
 
+# The first payload byte of a datapoint packet says what it is - the "p0
+# action". A status request without one is silently ignored by the device,
+# which looks exactly like a wrong command code.
+P0_WRITE = 0x01  # us, setting datapoints
+P0_READ = 0x02  # us, asking for current state
+P0_REPLY = 0x03  # documented as the answer to a read - see below
+P0_REPORT = 0x04  # documented as an unprompted report - see below
+
+# Do not correlate replies on these. They describe the link between the wifi
+# module and the spa's MCU, not the link between us and the module: 0x03 is
+# "MCU answering a read", 0x04 is "MCU reporting of its own accord". The
+# module serves our LAN read from its cached copy of that state, so what comes
+# back is whatever the MCU last said - 0x04 in every reply this spa has sent,
+# priming read and later requests alike. Treat both as "here is the state".
+
 
 class FramingError(ValueError):
     """A packet could not be parsed."""
@@ -45,13 +60,19 @@ class Frame:
 
     cmd: int
     payload: bytes = b""
-    # Normally 0. The device sets it to 1 on updates we did not ask for, which
-    # is how an unsolicited status push is told apart from an answer.
+    # Zero in every frame this spa has ever sent, and Gizwits documentation
+    # describes it as always zero. Kept because it is part of the envelope,
+    # but nothing should depend on it carrying information.
     flag: int = 0
 
     @property
     def is_unsolicited(self) -> bool:
-        """Whether the device sent this of its own accord."""
+        """Whether the device flagged this as sent of its own accord.
+
+        Always False against real hardware so far. Do not use this to tell a
+        push from an answer - neither the flag nor the p0 action byte
+        distinguishes them on this device.
+        """
         return self.flag == 1
 
 
