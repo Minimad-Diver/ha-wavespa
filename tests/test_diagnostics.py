@@ -48,6 +48,7 @@ def _make_entry() -> MagicMock:
     )
     coordinator.last_update_success = True
     coordinator.websocket.is_connected = True
+    coordinator.last_websocket_update = MagicMock(return_value=None)
 
     entry = MagicMock()
     entry.version = 2
@@ -133,3 +134,49 @@ class TestContent:
 
         diag = await async_get_config_entry_diagnostics(MagicMock(), entry)
         assert diag["coordinator"]["websocket_connected"] is None
+
+
+class TestLastWebsocketUpdate:
+    """Answers "is the real-time feed actually delivering?".
+
+    The socket being connected does not, which is why websocket_connected on
+    its own was not enough for triage.
+    """
+
+    async def test_reported_as_a_readable_timestamp(self) -> None:
+        entry = _make_entry()
+        entry.runtime_data.last_websocket_update.return_value = 1_700_000_000.0
+
+        diag = await async_get_config_entry_diagnostics(MagicMock(), entry)
+
+        assert diag["devices"][0]["last_websocket_update"] == (
+            "2023-11-14T22:13:20+00:00"
+        )
+
+    async def test_none_when_nothing_has_been_pushed(self) -> None:
+        """Distinguishes "never pushed" from "has gone quiet"."""
+        entry = _make_entry()
+        entry.runtime_data.last_websocket_update.return_value = None
+
+        diag = await async_get_config_entry_diagnostics(MagicMock(), entry)
+
+        assert diag["devices"][0]["last_websocket_update"] is None
+
+
+class TestCoordinatorAccessor:
+    """The accessor that gives _ws_last_update a consumer."""
+
+    async def test_returns_none_before_any_push(self, hass) -> None:
+        from custom_components.wavespa.coordinator import WavespaUpdateCoordinator
+
+        coordinator = WavespaUpdateCoordinator(hass, MagicMock(), MagicMock())
+
+        assert coordinator.last_websocket_update("did") is None
+
+    async def test_returns_the_recorded_time(self, hass) -> None:
+        from custom_components.wavespa.coordinator import WavespaUpdateCoordinator
+
+        coordinator = WavespaUpdateCoordinator(hass, MagicMock(), MagicMock())
+        coordinator._ws_last_update["did"] = 1_700_000_000.0
+
+        assert coordinator.last_websocket_update("did") == 1_700_000_000.0

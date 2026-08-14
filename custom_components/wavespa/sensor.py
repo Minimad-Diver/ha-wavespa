@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from logging import getLogger
@@ -32,7 +31,7 @@ from .const import (
 )
 from .coordinator import WavespaConfigEntry, WavespaUpdateCoordinator
 from .entity import WavespaEntity
-from .wavespa.model import WavespaDevice, WavespaDeviceStatus, WavespaDeviceType
+from .wavespa.model import WavespaDeviceStatus, WavespaDeviceType
 
 _LOGGER = getLogger(__name__)
 
@@ -129,14 +128,6 @@ class EstimatedAssumptionsMixin:
         }
 
 
-@dataclass
-class DeviceSensorDescription:
-    """An entity description with a function that describes how to derive a value."""
-
-    entity_description: SensorEntityDescription
-    value_fn: Callable[[WavespaDevice], StateType]
-
-
 # Entity state comes from the coordinator, so updates are not per-entity
 # polling and do not need serialising.
 PARALLEL_UPDATES = 0
@@ -175,19 +166,7 @@ async def async_setup_entry(
 
         entities.extend(
             [
-                DeviceSensor(
-                    coordinator,
-                    config_entry,
-                    device_id,
-                    sensor_description=DeviceSensorDescription(
-                        SensorEntityDescription(
-                            key="protocol_version",
-                            translation_key="protocol_version",
-                            entity_category=EntityCategory.DIAGNOSTIC,
-                        ),
-                        lambda device: device.protocol_version,
-                    ),
-                ),
+                ProtocolVersionSensor(coordinator, config_entry, device_id),
                 FilterPercentSensor(
                     coordinator,
                     config_entry,
@@ -205,30 +184,29 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class DeviceSensor(WavespaEntity, SensorEntity):
-    """A sensor based on device metadata."""
+class ProtocolVersionSensor(WavespaEntity, SensorEntity):
+    """The Gizwits protocol version the spa reports."""
 
-    sensor_description: DeviceSensorDescription
+    _attr_translation_key = "protocol_version"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(
         self,
         coordinator: WavespaUpdateCoordinator,
         config_entry: WavespaConfigEntry,
         device_id: str,
-        sensor_description: DeviceSensorDescription,
     ) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator, config_entry, device_id)
-        self.sensor_description = sensor_description
-        self.entity_description = sensor_description.entity_description
-        self._attr_unique_id = f"{device_id}_{self.entity_description.key}"
+        # Must stay f"{device_id}_protocol_version": changing it would orphan
+        # the existing entity in the registry rather than reuse it.
+        self._attr_unique_id = f"{device_id}_protocol_version"
 
     @property
     def native_value(self) -> StateType:
-        """Return the relevant property."""
-        if (device := self.wavespa_device) is not None:
-            return self.sensor_description.value_fn(device)
-        return None
+        """Return the protocol version, or None if the device is unknown."""
+        device = self.wavespa_device
+        return device.protocol_version if device is not None else None
 
 
 class FilterPercentSensor(WavespaEntity, SensorEntity):

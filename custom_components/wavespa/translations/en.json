@@ -58,7 +58,7 @@
         "name": "Estimated energy"
       },
       "percent_filter": {
-        "name": "Filter"
+        "name": "Filter life"
       },
       "protocol_version": {
         "name": "Protocol version"

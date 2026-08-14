@@ -41,7 +41,11 @@ class WavespaUpdateCoordinator(DataUpdateCoordinator[WavespaApiResults]):
             update_interval=_POLL_INTERVAL,
         )
         self.api = api
-        self._ws_last_update: dict[str, float] = {}  # Track WebSocket update times
+        # Wall-clock time of the last WebSocket push per device, exposed
+        # through last_websocket_update() for diagnostics. Answers "is the
+        # real-time feed actually delivering?", which the socket being
+        # connected does not.
+        self._ws_last_update: dict[str, float] = {}
         # Set by async_setup_entry once the client is built; None when no
         # UID is stored or the account has no devices to subscribe to.
         self.websocket: GizwitsWebSocket | None = None
@@ -106,6 +110,16 @@ class WavespaUpdateCoordinator(DataUpdateCoordinator[WavespaApiResults]):
 
         # Trigger immediate entity updates
         self.async_set_updated_data(self.api.cached_results())
+
+    def last_websocket_update(self, device_id: str) -> float | None:
+        """Return when this device last sent a push, or None if it never has.
+
+        None is meaningful: it distinguishes a spa that has sent nothing since
+        setup from one whose feed has merely gone quiet, which is the first
+        thing worth knowing when the WebSocket looks connected but the state
+        is stale.
+        """
+        return self._ws_last_update.get(device_id)
 
     def handle_websocket_online_status(self, device_id: str, is_online: bool) -> None:
         """Apply a device online/offline notification from the WebSocket.

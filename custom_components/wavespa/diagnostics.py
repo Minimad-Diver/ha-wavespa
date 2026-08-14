@@ -11,6 +11,7 @@ from typing import Any
 
 from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.core import HomeAssistant
+from homeassistant.util import dt as dt_util
 
 from .const import CONF_PASSWORD, CONF_UID, CONF_USER_TOKEN, CONF_USERNAME
 from .coordinator import WavespaConfigEntry
@@ -42,9 +43,18 @@ async def async_get_config_entry_diagnostics(
     devices = []
     for device_id, device in api.devices.items():
         status = coordinator.data.devices.get(device_id) if coordinator.data else None
+        last_push = coordinator.last_websocket_update(device_id)
         devices.append(
             {
                 "device_id": device_id,
+                # Rendered rather than reported as a raw epoch float, which is
+                # unreadable in a pasted diagnostics dump. None means this spa
+                # has pushed nothing since setup.
+                "last_websocket_update": (
+                    dt_util.utc_from_timestamp(last_push).isoformat()
+                    if last_push is not None
+                    else None
+                ),
                 "product_name": device.product_name,
                 "device_type": device.device_type.value,
                 "protocol_version": device.protocol_version,

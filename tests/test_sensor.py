@@ -14,6 +14,7 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 from typing import Any
 
+from homeassistant.const import EntityCategory
 from homeassistant.helpers.entity import Entity
 
 from custom_components.wavespa.wavespa.model import (
@@ -25,7 +26,7 @@ from custom_components.wavespa.sensor import (
     ESTIMATED_BUBBLES_WATTS,
     ESTIMATED_FILTER_WATTS,
     ESTIMATED_HEATER_WATTS,
-    DeviceSensor,
+    ProtocolVersionSensor,
     EstimatedEnergySensor,
     EstimatedPowerSensor,
     async_setup_entry,
@@ -556,4 +557,34 @@ class TestSetupEntry:
             for e in entities
         )
         # Diagnostic sensors are not gated, so they are still created.
-        assert any(isinstance(e, DeviceSensor) for e in entities)
+        assert any(isinstance(e, ProtocolVersionSensor) for e in entities)
+
+
+class TestProtocolVersionSensor:
+    """Replaced the generic DeviceSensor machinery when it had one user left."""
+
+    def _make_sensor(self, device: WavespaDevice | None = None):
+        from custom_components.wavespa.sensor import ProtocolVersionSensor
+
+        coordinator = _make_coordinator(device or _make_device(), _make_status())
+        return ProtocolVersionSensor(coordinator, _make_config_entry(), "test_device")
+
+    def test_reports_the_protocol_version(self):
+        assert self._make_sensor().native_value == 2
+
+    def test_unique_id_is_unchanged(self):
+        """Changing this would orphan the existing entity rather than reuse it."""
+        assert self._make_sensor()._attr_unique_id == "test_device_protocol_version"
+
+    def test_is_diagnostic(self):
+        assert self._make_sensor().entity_category is EntityCategory.DIAGNOSTIC
+
+    def test_none_when_the_device_is_unknown(self):
+        """A bindings refresh that drops the device must not raise."""
+        from custom_components.wavespa.sensor import ProtocolVersionSensor
+
+        coordinator = _make_coordinator(_make_device(), _make_status())
+        coordinator.api.devices = {}
+        sensor = ProtocolVersionSensor(coordinator, _make_config_entry(), "test_device")
+
+        assert sensor.native_value is None
