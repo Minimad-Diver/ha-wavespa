@@ -85,11 +85,13 @@ class TestEntityAvailability:
         entity = WavespaEntity(coordinator, config_entry, "test_device")
         assert entity.available is True
 
-    def test_available_when_offline(self):
-        """Entity is available even when is_online is False.
+    def test_unavailable_when_offline(self):
+        """An offline spa reports unavailable rather than stale state.
 
-        This is the core fix: the Gizwits API reports is_online=False
-        unreliably, but the device data is still valid.
+        is_online used to be ignored here, because on the polling-only
+        integration it read false for spas that were plainly working. With the
+        WebSocket reporting it directly it is trusted, and showing cached
+        attributes as though they were live is worse than showing nothing.
         """
         from custom_components.wavespa.entity import WavespaEntity
 
@@ -98,7 +100,26 @@ class TestEntityAvailability:
         config_entry = MagicMock()
 
         entity = WavespaEntity(coordinator, config_entry, "test_device")
-        assert entity.available is True
+        assert entity.available is False
+
+    def test_connectivity_sensor_stays_available_when_offline(self):
+        """The sensor reporting the outage must not itself go unavailable."""
+        from custom_components.wavespa.binary_sensor import (
+            _SPA_CONNECTIVITY_SENSOR_DESCRIPTION,
+            DeviceConnectivitySensor,
+        )
+
+        device = _make_device(is_online=False)
+        coordinator = _make_coordinator(device, _make_status())
+
+        sensor = DeviceConnectivitySensor(
+            coordinator,
+            MagicMock(),
+            "test_device",
+            _SPA_CONNECTIVITY_SENSOR_DESCRIPTION,
+        )
+        assert sensor.available is True
+        assert sensor.is_on is False
 
     def test_unavailable_when_no_device(self):
         """Entity is unavailable when device is not in coordinator."""
@@ -561,3 +582,114 @@ class TestClimateHvacAction:
         """No status at all reports unknown."""
         thermostat = self._make_thermostat(None)
         assert thermostat.hvac_action is None
+
+
+class TestClimateNoneGuards:
+    """Every temperature property reports unknown rather than raising."""
+
+    def _make_thermostat(self, status):
+        from custom_components.wavespa.climate import WaveSpaThermostat
+
+        device = _make_device()
+        coordinator = MagicMock()
+        coordinator.api = MagicMock()
+        coordinator.api.devices = {"test_device": device}
+        coordinator.data = WavespaApiResults(
+            devices={"test_device": status} if status is not None else {}
+        )
+        coordinator.last_update_success = True
+        coordinator.async_request_refresh = AsyncMock()
+        return WaveSpaThermostat(coordinator, MagicMock(), "test_device")
+
+    def test_current_temperature_without_status(self):
+        assert self._make_thermostat(None).current_temperature is None
+
+    def test_target_temperature_without_status(self):
+        assert self._make_thermostat(None).target_temperature is None
+
+    def test_current_temperature_is_read(self):
+        thermostat = self._make_thermostat(_make_status({"Current_temperature": 31}))
+        assert thermostat.current_temperature == 31
+
+    def test_target_temperature_is_read(self):
+        thermostat = self._make_thermostat(_make_status({"Temperature_setup": 38}))
+        assert thermostat.target_temperature == 38
+
+    def test_hvac_mode_without_status(self):
+        assert self._make_thermostat(None).hvac_mode is None
+
+    def test_temperature_range_is_celsius_by_default(self):
+        thermostat = self._make_thermostat(_make_status())
+        assert (thermostat.min_temp, thermostat.max_temp) == (20, 40)
+
+    def test_temperature_range_is_fahrenheit_for_us(self):
+        from custom_components.wavespa.climate import WaveSpaThermostat
+
+        device = _make_device(product_name="Wave_SPA_US")
+        coordinator = _make_coordinator(device, _make_status())
+        thermostat = WaveSpaThermostat(coordinator, MagicMock(), "test_device")
+
+        assert (thermostat.min_temp, thermostat.max_temp) == (68, 104)
+
+
+class TestClimateSetTemperature:
+    """The service call, including the combined mode-and-temperature form."""
+
+    def _make_thermostat(self):
+        from custom_components.wavespa.climate import WaveSpaThermostat
+
+        device = _make_device()
+        coordinator = _make_coordinator(device, _make_status())
+        coordinator.api.spa_set_heat = AsyncMock()
+        coordinator.api.spa_set_target_temp = AsyncMock()
+        return WaveSpaThermostat(coordinator, MagicMock(), "test_device")
+
+    async def test_without_a_temperature_does_nothing(self):
+        """Home Assistant can call this with only a mode, or with neither."""
+        thermostat = self._make_thermostat()
+
+        await thermostat.async_set_temperature()
+
+        thermostat.coordinator.api.spa_set_target_temp.assert_not_awaited()
+        thermostat.coordinator.async_request_refresh.assert_not_awaited()
+
+    async def test_sets_the_target(self):
+        from homeassistant.const import ATTR_TEMPERATURE
+
+        thermostat = self._make_thermostat()
+
+        await thermostat.async_set_temperature(**{ATTR_TEMPERATURE: 38})
+
+        thermostat.coordinator.api.spa_set_target_temp.assert_awaited_once_with(
+            "test_device", 38
+        )
+        thermostat.coordinator.async_request_refresh.assert_awaited_once()
+
+    async def test_mode_and_temperature_together(self):
+        """A single call may carry both, and both must be applied."""
+        from homeassistant.components.climate.const import ATTR_HVAC_MODE, HVACMode
+        from homeassistant.const import ATTR_TEMPERATURE
+
+        thermostat = self._make_thermostat()
+
+        await thermostat.async_set_temperature(
+            **{ATTR_TEMPERATURE: 38, ATTR_HVAC_MODE: HVACMode.HEAT}
+        )
+
+        thermostat.coordinator.api.spa_set_heat.assert_awaited_once_with(
+            "test_device", True
+        )
+        thermostat.coordinator.api.spa_set_target_temp.assert_awaited_once_with(
+            "test_device", 38
+        )
+
+    async def test_set_hvac_mode_off(self):
+        from homeassistant.components.climate.const import HVACMode
+
+        thermostat = self._make_thermostat()
+
+        await thermostat.async_set_hvac_mode(HVACMode.OFF)
+
+        thermostat.coordinator.api.spa_set_heat.assert_awaited_once_with(
+            "test_device", False
+        )

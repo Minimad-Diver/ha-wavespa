@@ -375,3 +375,91 @@ class TestMergeDeviceAttrs:
         api = _make_api()
         api.merge_device_attrs("second_device", {"Heater": 1})
         assert set(api.cached_results().devices) == {_DEVICE_ID, "second_device"}
+
+
+class TestPartialDeviceFailures:
+    """One spa failing must not take the others down with it.
+
+    Multi-spa accounts are rare, but on one it makes no sense for a spa that
+    answered to go unavailable because a different spa did not.
+    """
+
+    @staticmethod
+    def _api_with_devices(*device_ids: str) -> WavespaApi:
+        from unittest.mock import MagicMock
+
+        api = WavespaApi(session=AsyncMock(), user_token="token", api_root="http://api")
+        api.devices = {d: MagicMock() for d in device_ids}
+        return api
+
+    @staticmethod
+    def _responder(failing: dict[str, BaseException]):
+        async def fake_get(url: str) -> dict[str, Any]:
+            did = url.removesuffix("/latest").rsplit("/", 1)[-1]
+            if did in failing:
+                raise failing[did]
+            return {"updated_at": 100, "attr": {"which": did}}
+
+        return fake_get
+
+    async def test_working_device_is_still_cached(self) -> None:
+        api = self._api_with_devices("good", "bad")
+        api._do_get = self._responder({"bad": OSError("unreachable")})  # type: ignore[method-assign]
+
+        results = await api.fetch_data()
+
+        assert results.devices["good"].attrs["which"] == "good"
+        assert "bad" not in results.devices
+
+    async def test_previous_state_is_kept_for_the_failing_device(self) -> None:
+        """The failing spa holds its last known state rather than vanishing."""
+        api = self._api_with_devices("good", "bad")
+        api._state_cache["bad"] = WavespaDeviceStatus(
+            timestamp=1000, attrs={"Heater": 1}
+        )
+        api._do_get = self._responder({"bad": OSError("unreachable")})  # type: ignore[method-assign]
+
+        results = await api.fetch_data()
+
+        assert results.devices["bad"].attrs["Heater"] == 1
+
+    async def test_all_devices_failing_raises(self) -> None:
+        """With nothing refreshed there is no partial result worth serving."""
+        api = self._api_with_devices("a", "b")
+        api._do_get = self._responder(  # type: ignore[method-assign]
+            {"a": OSError("down"), "b": OSError("down")}
+        )
+
+        with pytest.raises(OSError):
+            await api.fetch_data()
+
+    async def test_auth_failure_propagates_even_when_others_succeed(self) -> None:
+        """An expired token is account-wide, and must still reach reauth.
+
+        Swallowing it as one device's problem would leave the entry serving
+        stale data with no prompt to re-authenticate.
+        """
+        from custom_components.wavespa.wavespa.api import (
+            WavespaTokenInvalidException,
+        )
+
+        api = self._api_with_devices("good", "bad")
+        api._do_get = self._responder({"bad": WavespaTokenInvalidException()})  # type: ignore[method-assign]
+
+        with pytest.raises(WavespaTokenInvalidException):
+            await api.fetch_data()
+
+    async def test_cancellation_is_not_swallowed(self) -> None:
+        api = self._api_with_devices("good", "bad")
+        api._do_get = self._responder({"bad": asyncio.CancelledError()})  # type: ignore[method-assign]
+
+        with pytest.raises(asyncio.CancelledError):
+            await api.fetch_data()
+
+    async def test_single_device_failure_still_raises(self) -> None:
+        """A one-spa account is the all-failed case, so it must not go quiet."""
+        api = self._api_with_devices("only")
+        api._do_get = self._responder({"only": OSError("down")})  # type: ignore[method-assign]
+
+        with pytest.raises(OSError):
+            await api.fetch_data()

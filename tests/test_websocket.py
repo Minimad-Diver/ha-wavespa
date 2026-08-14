@@ -624,3 +624,61 @@ async def test_listen_loop_handles_connection_closed():
     # Returns normally - reconnecting is the supervisor's decision, not the
     # listen loop's
     await ws._listen_loop()
+
+
+@pytest.mark.asyncio
+async def test_online_status_is_forwarded():
+    """s2c_online_status reaches the coordinator instead of only being logged."""
+    seen: list[tuple[str, bool]] = []
+    ws = _make_ws(online_status_callback=lambda did, online: seen.append((did, online)))
+
+    ws._handle_online_status(
+        {"cmd": "s2c_online_status", "data": {"did": "device1", "is_online": False}}
+    )
+    ws._handle_online_status(
+        {"cmd": "s2c_online_status", "data": {"did": "device1", "is_online": True}}
+    )
+
+    assert seen == [("device1", False), ("device1", True)]
+
+
+@pytest.mark.asyncio
+async def test_online_status_without_device_id_is_dropped():
+    callback = MagicMock()
+    ws = _make_ws(online_status_callback=callback)
+
+    ws._handle_online_status({"cmd": "s2c_online_status", "data": {"is_online": True}})
+
+    callback.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_online_status_callback_exception_is_contained():
+    """A raising callback must not kill the listen loop."""
+    ws = _make_ws(online_status_callback=MagicMock(side_effect=Exception("boom")))
+
+    # Should not raise
+    ws._handle_online_status(
+        {"cmd": "s2c_online_status", "data": {"did": "device1", "is_online": True}}
+    )
+
+
+@pytest.mark.asyncio
+async def test_listen_loop_forwards_online_status():
+    """End to end through the message dispatch, not just the handler."""
+    seen: list[tuple[str, bool]] = []
+    ws = _make_ws(online_status_callback=lambda did, online: seen.append((did, online)))
+
+    mock_ws = MagicMock()
+    ws._websocket = mock_ws
+
+    async def mock_async_iter():
+        yield json.dumps(
+            {"cmd": "s2c_online_status", "data": {"did": "device1", "is_online": False}}
+        )
+
+    mock_ws.__aiter__ = lambda self: mock_async_iter()
+
+    await ws._listen_loop()
+
+    assert seen == [("device1", False)]

@@ -188,58 +188,6 @@ async def async_setup_entry(
                         lambda device: device.protocol_version,
                     ),
                 ),
-                DeviceSensor(
-                    coordinator,
-                    config_entry,
-                    device_id,
-                    sensor_description=DeviceSensorDescription(
-                        SensorEntityDescription(
-                            key="mcu_soft_version",
-                            translation_key="mcu_soft_version",
-                            entity_category=EntityCategory.DIAGNOSTIC,
-                        ),
-                        lambda device: device.mcu_soft_version,
-                    ),
-                ),
-                DeviceSensor(
-                    coordinator,
-                    config_entry,
-                    device_id,
-                    sensor_description=DeviceSensorDescription(
-                        SensorEntityDescription(
-                            key="mcu_hard_version",
-                            translation_key="mcu_hard_version",
-                            entity_category=EntityCategory.DIAGNOSTIC,
-                        ),
-                        lambda device: device.mcu_hard_version,
-                    ),
-                ),
-                DeviceSensor(
-                    coordinator,
-                    config_entry,
-                    device_id,
-                    sensor_description=DeviceSensorDescription(
-                        SensorEntityDescription(
-                            key="wifi_soft_version",
-                            translation_key="wifi_soft_version",
-                            entity_category=EntityCategory.DIAGNOSTIC,
-                        ),
-                        lambda device: device.wifi_soft_version,
-                    ),
-                ),
-                DeviceSensor(
-                    coordinator,
-                    config_entry,
-                    device_id,
-                    sensor_description=DeviceSensorDescription(
-                        SensorEntityDescription(
-                            key="wifi_hard_version",
-                            translation_key="wifi_hard_version",
-                            entity_category=EntityCategory.DIAGNOSTIC,
-                        ),
-                        lambda device: device.wifi_hard_version,
-                    ),
-                ),
                 FilterPercentSensor(
                     coordinator,
                     config_entry,

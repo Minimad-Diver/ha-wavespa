@@ -107,6 +107,27 @@ class WavespaUpdateCoordinator(DataUpdateCoordinator[WavespaApiResults]):
         # Trigger immediate entity updates
         self.async_set_updated_data(self.api.cached_results())
 
+    def handle_websocket_online_status(self, device_id: str, is_online: bool) -> None:
+        """Apply a device online/offline notification from the WebSocket.
+
+        Without this the flag only moved when a bindings refresh happened to
+        notice, so a spa could show as connected for up to a polling interval
+        after it had actually dropped.
+        """
+        if device_id not in self.api.devices:
+            _LOGGER.debug(
+                "Ignoring online status for unrecognised device %s", device_id
+            )
+            return
+
+        if not self.api.set_device_online(device_id, is_online):
+            return
+
+        _LOGGER.debug(
+            "Device %s reported %s", device_id, "online" if is_online else "offline"
+        )
+        self.async_set_updated_data(self.api.cached_results())
+
     def handle_websocket_disconnect(self) -> None:
         """Handle WebSocket disconnection.
 

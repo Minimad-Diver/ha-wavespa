@@ -8,6 +8,7 @@ from logging import getLogger
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .wavespa.api import WavespaApi, WavespaAuthException
@@ -26,6 +27,46 @@ from .const import (
 from .coordinator import WavespaConfigEntry, WavespaUpdateCoordinator
 
 _LOGGER = getLogger(__name__)
+
+# Unique ID suffixes of entities this integration used to create and no longer
+# does. Home Assistant keeps registry entries for entities that stop being
+# provided, so without this they linger as "unavailable" forever and the user
+# has to delete each one by hand.
+#
+# Only ever add to this list. Removing an entry does not resurrect the entity -
+# it just stops the cleanup happening for anyone who has not upgraded yet.
+_OBSOLETE_UNIQUE_ID_SUFFIXES = (
+    # Removed in cddb92a: WaveSpa hardware has no power button, so a switch
+    # writing the Heater field duplicated the thermostat.
+    "_Heater",
+    # Removed for #50: the fault attributes it matched (system_err*, E##,
+    # earth, error) are Bestway heritage and a Wave_SPA_EU reports none of
+    # them, so it could never turn on.
+    "_spa_has_error",
+    # Removed for #47: superseded by sw_version/hw_version on the device.
+    "_mcu_soft_version",
+    "_mcu_hard_version",
+    "_wifi_soft_version",
+    "_wifi_hard_version",
+)
+
+
+def _async_remove_obsolete_entities(
+    hass: HomeAssistant, entry: WavespaConfigEntry
+) -> None:
+    """Delete registry entries for entities this integration no longer creates."""
+    registry = er.async_get(hass)
+
+    for registry_entry in er.async_entries_for_config_entry(registry, entry.entry_id):
+        if not registry_entry.unique_id.endswith(_OBSOLETE_UNIQUE_ID_SUFFIXES):
+            continue
+
+        _LOGGER.debug(
+            "Removing obsolete entity %s from the registry", registry_entry.entity_id
+        )
+        registry.async_remove(registry_entry.entity_id)
+
+
 _PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
     Platform.CLIMATE,
@@ -110,6 +151,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: WavespaConfigEntry) -> b
                     update_callback=coordinator.handle_websocket_update,
                     disconnect_callback=coordinator.handle_websocket_disconnect,
                     connect_callback=coordinator.set_websocket_active,
+                    online_status_callback=coordinator.handle_websocket_online_status,
                 )
 
                 # Run the supervisor for as long as the entry is loaded. Using
@@ -138,6 +180,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: WavespaConfigEntry) -> b
         _LOGGER.debug("No UID in config, WebSocket disabled (polling only)")
 
     coordinator.websocket = ws_client
+
+    _async_remove_obsolete_entities(hass, entry)
 
     entry.runtime_data = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, _PLATFORMS)

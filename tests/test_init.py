@@ -275,3 +275,69 @@ async def test_setup_entry_exception(hass: HomeAssistant, error_on_get_data):
 
     await hass.async_block_till_done()
     assert config_entry.state is ConfigEntryState.SETUP_RETRY
+
+
+async def test_obsolete_entities_are_removed_from_the_registry(hass: HomeAssistant):
+    """Entities the integration no longer creates are cleaned up on setup.
+
+    Home Assistant keeps registry entries for entities that stop being
+    provided, so without this they sit as "unavailable" forever and the user
+    has to delete each one by hand.
+    """
+    from homeassistant.helpers import entity_registry as er
+
+    future = (datetime.now() + timedelta(days=31)).timestamp()
+    config_entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_USERNAME: "test@example.org",
+            CONF_PASSWORD: "P@asw0rd",
+            CONF_API_ROOT: CONF_API_ROOT_EU,
+            CONF_USER_TOKEN: "t0k3n",
+            CONF_USER_TOKEN_EXPIRY: int(future),
+            CONF_UID: "uid",
+        },
+        version=2,
+        entry_id="cleanup",
+    )
+    config_entry.add_to_hass(hass)
+
+    registry = er.async_get(hass)
+
+    obsolete = {
+        "switch": "did_Heater",
+        "binary_sensor": "did_spa_has_error",
+        "sensor": "did_mcu_soft_version",
+    }
+    kept = {
+        "binary_sensor": "did_spa_connected",
+        "sensor": "did_protocol_version",
+        "climate": "did_thermostat",
+    }
+    for domain, unique_id in {**obsolete, **kept}.items():
+        registry.async_get_or_create(
+            domain, DOMAIN, unique_id, config_entry=config_entry
+        )
+
+    async def populate_devices(self: WavespaApi) -> None:
+        self.devices = {"did": _DEVICE}
+
+    async def fetch_cached(self: WavespaApi) -> WavespaApiResults:
+        return self.cached_results()
+
+    with (
+        patch.object(WavespaApi, "refresh_bindings", populate_devices),
+        patch.object(WavespaApi, "fetch_data", fetch_cached),
+        patch("custom_components.wavespa.GizwitsWebSocket", return_value=None),
+    ):
+        await hass.config_entries.async_setup(config_entry.entry_id)
+        await hass.async_block_till_done()
+
+    remaining = {
+        e.unique_id for e in er.async_entries_for_config_entry(registry, "cleanup")
+    }
+
+    for unique_id in obsolete.values():
+        assert unique_id not in remaining, f"{unique_id} should have been removed"
+    for unique_id in kept.values():
+        assert unique_id in remaining, f"{unique_id} should have been kept"

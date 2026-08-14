@@ -201,16 +201,42 @@ class WavespaApi:
         device ate into the budget available to the rest, so on an account with
         several spas the whole update could time out even though every
         individual request was within its own limit.
+
+        One device failing does not fail the update. Multi-spa accounts are
+        rare, but on one it makes no sense for a spa that answered to go
+        unavailable because a different spa did not. The failure is logged and
+        that device simply keeps its previous cached state.
+
+        Two exceptions to that, both deliberate:
+
+        - An authentication error is account-wide, not device-specific.
+          Treating it as one device's problem would leave the entry serving
+          stale data instead of prompting for reauthentication.
+        - If *every* device fails there is nothing to serve, so the error is
+          raised and the coordinator marks the update failed rather than
+          quietly presenting stale state as current.
         """
         device_ids = list(self.devices)
         responses = await asyncio.gather(
             *(
                 self._do_get(f"{self._api_root}/app/devdata/{did}/latest")
                 for did in device_ids
-            )
+            ),
+            return_exceptions=True,
         )
 
+        failures: dict[str, BaseException] = {}
+
         for did, latest_data in zip(device_ids, responses, strict=True):
+            if isinstance(latest_data, BaseException):
+                if isinstance(latest_data, WavespaAuthException):
+                    raise latest_data
+                if not isinstance(latest_data, Exception):
+                    # Cancellation and the like are not ours to swallow.
+                    raise latest_data
+                failures[did] = latest_data
+                continue
+
             device_info = self.devices[did]
 
             # Get the age of the data according to the API
@@ -274,11 +300,37 @@ class WavespaApi:
                     attr_dump,
                 )
 
+        if failures:
+            if len(failures) == len(device_ids):
+                # Nothing was refreshed, so there is no partial result worth
+                # serving. Raise so the coordinator reports the update failed.
+                raise next(iter(failures.values()))
+
+            _LOGGER.warning(
+                "Kept previous state for %d of %d devices after failures: %s",
+                len(failures),
+                len(device_ids),
+                "; ".join(f"{did}: {err}" for did, err in failures.items()),
+            )
+
         return WavespaApiResults(self._state_cache)
 
     def cached_results(self) -> WavespaApiResults:
         """Return a snapshot of the cached state for every known device."""
         return WavespaApiResults(self._state_cache)
+
+    def set_device_online(self, device_id: str, is_online: bool) -> bool:
+        """Record a device going on or offline, returning True if it changed.
+
+        The bindings response carries this flag, but only as often as we poll.
+        The WebSocket reports it the moment it changes, so this lets the push
+        keep it current between polls.
+        """
+        device = self.devices.get(device_id)
+        if device is None or device.is_online == is_online:
+            return False
+        device.is_online = is_online
+        return True
 
     def _local_write_is_recent(self, device_id: str) -> bool:
         """Return True if fresher-than-poll data arrived within the settle window."""

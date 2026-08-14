@@ -43,9 +43,6 @@
     "binary_sensor": {
       "spa_connected": {
         "name": "Connected"
-      },
-      "spa_has_error": {
-        "name": "Errors"
       }
     },
     "climate": {
@@ -65,18 +62,6 @@
       },
       "protocol_version": {
         "name": "Protocol version"
-      },
-      "mcu_soft_version": {
-        "name": "MCU software version"
-      },
-      "mcu_hard_version": {
-        "name": "MCU hardware version"
-      },
-      "wifi_soft_version": {
-        "name": "Wi-Fi software version"
-      },
-      "wifi_hard_version": {
-        "name": "Wi-Fi hardware version"
       }
     },
     "switch": {

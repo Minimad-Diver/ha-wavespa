@@ -13,11 +13,36 @@ Github is used to host code, to track issues and feature requests, as well as ac
 
 Pull requests are the best way to propose changes to the codebase.
 
-1. Fork the repo and create your branch from `main`.
+### Branches
+
+- `main` is stable. It holds released versions, and is what HACS installs.
+- `dev` is the development and testing branch. All work happens here.
+
+Branch from `dev` and open your pull request against `dev`. Changes reach
+`main` from `dev` once they have been tested.
+
+### Releases
+
+Release tags are bare version numbers matching the `version` field in
+`custom_components/wavespa/manifest.json` — `2.0.0`, not `v2.0.0` or `V2.0.0`.
+HACS resolves releases by tag, so the format needs to stay consistent.
+
+This repository is a fork, and the upstream project used `v`- and `V`-prefixed
+tags. Those belong to upstream and are not part of this fork's history; a
+`git fetch --all` will pull them into a local clone, where they can be ignored.
+Use `git ls-remote --tags origin` to see this fork's tags.
+
+### Making a change
+
+1. Fork the repo and create your branch from `dev`.
 2. Ensure `pre-commit` is set up before making any changes. Run `pre-commit install` to do this.
 3. If you've changed something, update the documentation.
 4. Test you contribution, and ensure any relevant tests have been updated.
-5. Open a pull request.
+5. Open a pull request against `dev`.
+
+Note that `pre-commit run --all-files` checks more than the Python source: it
+also runs mypy over `tests/`, prettier over Markdown and JSON, codespell, and
+yamllint. Running it locally before pushing saves a round trip through CI.
 
 ## Any contributions you make will be under the MIT Software License
 

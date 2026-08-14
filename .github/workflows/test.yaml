@@ -4,18 +4,27 @@ name: Unit tests
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, dev]
   schedule:
     - cron: "0 0 * * *"
 
 jobs:
   test:
     runs-on: "ubuntu-latest"
-    name: Run tests (Python ${{ matrix.python-version }})
+    name: Run tests (${{ matrix.name }})
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.14"]
+        include:
+          # The oldest Home Assistant the integration claims to support, per
+          # hacs.json. Without this nothing verifies that claim: the pinned
+          # test framework brings its own, newer, Home Assistant.
+          - name: HA 2025.11.0 (minimum supported)
+            phacc: "0.13.294"
+          # The version development happens against, pinned in
+          # requirements_test.txt.
+          - name: HA 2026.8.1 (current)
+            phacc: ""
     steps:
       - name: Check out code from GitHub
         uses: actions/checkout@v4
@@ -23,12 +32,27 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "${{ matrix.python-version }}"
+          python-version: "3.14"
           cache: pip
           cache-dependency-path: requirements*.txt
 
+      # Installed as a single resolution rather than installing the pinned set
+      # and downgrading over it, which leaves pip reconciling two Home
+      # Assistant versions and their transitive pins.
       - name: Install requirements
-        run: python3 -m pip install -r requirements_test.txt
+        run: |
+          if [ -n "${{ matrix.phacc }}" ]; then
+            python3 -m pip install \
+              "pytest-homeassistant-custom-component==${{ matrix.phacc }}" \
+              "websockets==17.0.1"
+          else
+            python3 -m pip install -r requirements_test.txt
+          fi
+
+      - name: Report the Home Assistant version under test
+        run: |
+          python3 -c \
+            "from homeassistant.const import __version__; print(__version__)"
 
       - name: Run tests
         run: |
@@ -38,7 +62,7 @@ jobs:
             --durations=10 \
             -n auto \
             --cov custom_components.wavespa \
-            --cov-fail-under=80 \
+            --cov-fail-under=95 \
             -o console_output_style=count \
             -p no:sugar \
             tests
