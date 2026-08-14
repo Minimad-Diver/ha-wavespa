@@ -11,8 +11,8 @@ only the two that need no device to test:
 - `framing`: the transport envelope, identical for every Gizwits product.
 - `codec`: turning a datapoint payload into the same attribute dictionary the
   cloud API returns, driven by the product's own definition.
-
-The network session on top of them lands separately.
+- `session`: a read-only TCP session - connect, authenticate, read status, and
+  stay alive. Writing datapoints lands separately.
 
 Protocol details were derived from chrisc123/jebao_aqua-homeassistant (MIT),
 and verified against a real Wave Spa Garda.
@@ -20,10 +20,14 @@ and verified against a real Wave Spa Garda.
 
 from .codec import DatapointSchema, decode_attrs, encode_attrs
 from .framing import Frame, pack, unpack
+from .session import GizwitsLanSession, LanSessionError, LoginRefused
 
 __all__ = [
     "DatapointSchema",
     "Frame",
+    "GizwitsLanSession",
+    "LanSessionError",
+    "LoginRefused",
     "decode_attrs",
     "encode_attrs",
     "pack",
