@@ -161,10 +161,23 @@ class TestSplitStream:
         assert [f.cmd for f in frames] == [0x0091]
         assert rest == b""
 
-    def test_garbage_stops_the_scan(self) -> None:
-        frames, rest = split_stream(b"garbage")
+    def test_garbage_is_reported_not_buffered(self) -> None:
+        """Buffering it instead would leave the session deaf but appearing fine."""
+        with pytest.raises(FramingError, match="out of step"):
+            split_stream(b"garbage")
+
+    def test_a_partial_prefix_is_not_garbage(self) -> None:
+        """The first bytes of a packet can arrive on their own."""
+        frames, rest = split_stream(PROTOCOL_VERSION[:2])
         assert frames == []
-        assert rest == b"garbage"
+        assert rest == PROTOCOL_VERSION[:2]
+
+    def test_a_short_buffer_that_cannot_be_a_prefix_is_garbage(self) -> None:
+        with pytest.raises(FramingError, match="cannot begin a packet"):
+            split_stream(b"\xff")
+
+    def test_an_empty_buffer_is_fine(self) -> None:
+        assert split_stream(b"") == ([], b"")
 
     def test_frames_are_comparable(self) -> None:
         """Frozen dataclass, so tests can compare whole frames."""

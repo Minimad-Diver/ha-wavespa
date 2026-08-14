@@ -138,12 +138,27 @@ def split_stream(buffer: bytes) -> tuple[list[Frame], bytes]:
     TCP gives no message boundaries, so a read can hold several packets, or
     half of one. Anything incomplete is handed back to be prepended to the next
     read rather than discarded.
+
+    Bytes that cannot be the start of a packet raise FramingError. There is no
+    resynchronising from that - the prefix is not a delimiter that can be
+    scanned for, since it may occur inside a payload - so the honest answer is
+    to say so and let the caller reconnect. Treating it as "more is arriving"
+    would leave the buffer growing forever and the session silently deaf.
     """
     frames: list[Frame] = []
 
     while True:
+        if len(buffer) < len(PROTOCOL_VERSION):
+            if not PROTOCOL_VERSION.startswith(buffer):
+                raise FramingError(
+                    f"stream out of step: {buffer.hex()} cannot begin a packet"
+                )
+            break  # a genuine partial prefix; the rest is still arriving
         if not buffer.startswith(PROTOCOL_VERSION):
-            break
+            raise FramingError(
+                f"stream out of step: expected prefix {PROTOCOL_VERSION.hex()}, "
+                f"got {buffer[: len(PROTOCOL_VERSION)].hex()}"
+            )
         try:
             body_len, offset = decode_varlen(buffer, len(PROTOCOL_VERSION))
         except FramingError:
