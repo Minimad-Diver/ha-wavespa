@@ -1,0 +1,469 @@
+{
+  "name": "Wave_SPA_UL",
+  "packetVersion": "0x00000004",
+  "protocolType": "standard",
+  "product_key": "747be354e00449e799883a966d0c9cbd",
+  "entities": [
+    {
+      "display_name": "\u673a\u667a\u4e91\u5f00\u53d1\u5957\u4ef6",
+      "attrs": [
+        {
+          "display_name": "Heater",
+          "name": "Heater",
+          "data_type": "bool",
+          "position": {
+            "byte_offset": 0,
+            "unit": "bit",
+            "len": 1,
+            "bit_offset": 0
+          },
+          "type": "status_writable",
+          "id": 0,
+          "desc": "\u52a0\u70ed"
+        },
+        {
+          "display_name": "Bubble",
+          "name": "Bubble",
+          "data_type": "bool",
+          "position": {
+            "byte_offset": 0,
+            "unit": "bit",
+            "len": 1,
+            "bit_offset": 1
+          },
+          "type": "status_writable",
+          "id": 1,
+          "desc": "\u6c14\u6ce1"
+        },
+        {
+          "display_name": "Filter",
+          "name": "Filter",
+          "data_type": "bool",
+          "position": {
+            "byte_offset": 0,
+            "unit": "bit",
+            "len": 1,
+            "bit_offset": 2
+          },
+          "type": "status_writable",
+          "id": 2,
+          "desc": "\u8fc7\u6ee4"
+        },
+        {
+          "display_name": "Fp",
+          "name": "Fp",
+          "data_type": "bool",
+          "position": {
+            "byte_offset": 0,
+            "unit": "bit",
+            "len": 1,
+            "bit_offset": 3
+          },
+          "type": "status_writable",
+          "id": 3,
+          "desc": "\u9632\u51bb"
+        },
+        {
+          "display_name": "bit1",
+          "name": "bit1",
+          "data_type": "bool",
+          "position": {
+            "byte_offset": 0,
+            "unit": "bit",
+            "len": 1,
+            "bit_offset": 4
+          },
+          "type": "status_writable",
+          "id": 4,
+          "desc": "\u5907\u75281"
+        },
+        {
+          "display_name": "bit2",
+          "name": "bit2",
+          "data_type": "bool",
+          "position": {
+            "byte_offset": 0,
+            "unit": "bit",
+            "len": 1,
+            "bit_offset": 5
+          },
+          "type": "status_writable",
+          "id": 5,
+          "desc": "\u5907\u75282"
+        },
+        {
+          "display_name": "Temperature_setup",
+          "name": "Temperature_setup",
+          "data_type": "uint8",
+          "position": {
+            "byte_offset": 1,
+            "unit": "byte",
+            "len": 1,
+            "bit_offset": 0
+          },
+          "uint_spec": {
+            "addition": 0,
+            "max": 255,
+            "ratio": 1,
+            "min": 0
+          },
+          "type": "status_writable",
+          "id": 6,
+          "desc": "\u6e29\u5ea6\u8bbe\u5b9a"
+        },
+        {
+          "display_name": "Temp1",
+          "name": "Temp1",
+          "data_type": "uint8",
+          "position": {
+            "byte_offset": 2,
+            "unit": "byte",
+            "len": 1,
+            "bit_offset": 0
+          },
+          "uint_spec": {
+            "addition": 0,
+            "max": 255,
+            "ratio": 1,
+            "min": 0
+          },
+          "type": "status_writable",
+          "id": 7,
+          "desc": "\u5907\u7528\u6570\u70b91"
+        },
+        {
+          "display_name": "Temp2",
+          "name": "Temp2",
+          "data_type": "uint8",
+          "position": {
+            "byte_offset": 3,
+            "unit": "byte",
+            "len": 1,
+            "bit_offset": 0
+          },
+          "uint_spec": {
+            "addition": 0,
+            "max": 255,
+            "ratio": 1,
+            "min": 0
+          },
+          "type": "status_writable",
+          "id": 8,
+          "desc": "\u5907\u7528\u6570\u70b92"
+        },
+        {
+          "display_name": "Temp3",
+          "name": "Temp3",
+          "data_type": "uint8",
+          "position": {
+            "byte_offset": 4,
+            "unit": "byte",
+            "len": 1,
+            "bit_offset": 0
+          },
+          "uint_spec": {
+            "addition": 0,
+            "max": 255,
+            "ratio": 1,
+            "min": 0
+          },
+          "type": "status_writable",
+          "id": 9,
+          "desc": "\u5907\u7528\u6570\u70b93"
+        },
+        {
+          "display_name": "Current_temperature",
+          "name": "Current_temperature",
+          "data_type": "uint8",
+          "position": {
+            "byte_offset": 5,
+            "unit": "byte",
+            "len": 1,
+            "bit_offset": 0
+          },
+          "uint_spec": {
+            "addition": 0,
+            "max": 255,
+            "ratio": 1,
+            "min": 0
+          },
+          "type": "status_readonly",
+          "id": 10,
+          "desc": "\u5f53\u524d\u6e29\u5ea6"
+        },
+        {
+          "display_name": "Time_filter",
+          "name": "Time_filter",
+          "data_type": "uint16",
+          "position": {
+            "byte_offset": 6,
+            "unit": "byte",
+            "len": 2,
+            "bit_offset": 0
+          },
+          "uint_spec": {
+            "addition": 0,
+            "max": 10200,
+            "ratio": 1,
+            "min": 0
+          },
+          "type": "status_readonly",
+          "id": 11,
+          "desc": "\u8fc7\u6ee4\u7f51\u4f7f\u7528\u65f6\u95f4"
+        },
+        {
+          "display_name": "Overtime_filter",
+          "name": "Overtime_filter",
+          "data_type": "bool",
+          "position": {
+            "byte_offset": 8,
+            "unit": "bit",
+            "len": 1,
+            "bit_offset": 0
+          },
+          "type": "alert",
+          "id": 12,
+          "desc": "\u8fc7\u6ee4\u8d85\u65f6"
+        },
+        {
+          "display_name": "Superheat",
+          "name": "Superheat",
+          "data_type": "bool",
+          "position": {
+            "byte_offset": 8,
+            "unit": "bit",
+            "len": 1,
+            "bit_offset": 1
+          },
+          "type": "alert",
+          "id": 13,
+          "desc": "\u8fc7\u70ed"
+        },
+        {
+          "display_name": "Undercooling",
+          "name": "Undercooling",
+          "data_type": "bool",
+          "position": {
+            "byte_offset": 8,
+            "unit": "bit",
+            "len": 1,
+            "bit_offset": 2
+          },
+          "type": "alert",
+          "id": 14,
+          "desc": "\u8fc7\u51b7"
+        }
+      ],
+      "name": "entity0",
+      "id": 0
+    }
+  ],
+  "ui": {
+    "object": {
+      "version": 4,
+      "showEditButton": false
+    },
+    "sections": [
+      {
+        "elements": [
+          {
+            "boolValue": false,
+            "object": {
+              "action": "entity0",
+              "bind": [
+                "entity0.Heater"
+              ],
+              "perm": "W"
+            },
+            "type": "QBooleanElement",
+            "key": "entity0.Heater",
+            "title": "Heater"
+          },
+          {
+            "boolValue": false,
+            "object": {
+              "action": "entity0",
+              "bind": [
+                "entity0.Bubble"
+              ],
+              "perm": "W"
+            },
+            "type": "QBooleanElement",
+            "key": "entity0.Bubble",
+            "title": "Bubble"
+          },
+          {
+            "boolValue": false,
+            "object": {
+              "action": "entity0",
+              "bind": [
+                "entity0.Filter"
+              ],
+              "perm": "W"
+            },
+            "type": "QBooleanElement",
+            "key": "entity0.Filter",
+            "title": "Filter"
+          },
+          {
+            "boolValue": false,
+            "object": {
+              "action": "entity0",
+              "bind": [
+                "entity0.Fp"
+              ],
+              "perm": "W"
+            },
+            "type": "QBooleanElement",
+            "key": "entity0.Fp",
+            "title": "Fp"
+          },
+          {
+            "boolValue": false,
+            "object": {
+              "action": "entity0",
+              "bind": [
+                "entity0.bit1"
+              ],
+              "perm": "W"
+            },
+            "type": "QBooleanElement",
+            "key": "entity0.bit1",
+            "title": "bit1"
+          },
+          {
+            "boolValue": false,
+            "object": {
+              "action": "entity0",
+              "bind": [
+                "entity0.bit2"
+              ],
+              "perm": "W"
+            },
+            "type": "QBooleanElement",
+            "key": "entity0.bit2",
+            "title": "bit2"
+          },
+          {
+            "title": "Temperature_setup",
+            "bind": "floatValue:float",
+            "object": {
+              "action": "entity0",
+              "bind": [
+                "entity0.Temperature_setup"
+              ],
+              "uint_spec": {
+                "max": 255,
+                "step": 1,
+                "min": 0
+              },
+              "perm": "W"
+            },
+            "value": 0,
+            "key": "entity0.Temperature_setup",
+            "maximumValue": 255,
+            "minimumValue": 0,
+            "type": "QFloatElement"
+          },
+          {
+            "title": "Temp1",
+            "bind": "floatValue:float",
+            "object": {
+              "action": "entity0",
+              "bind": [
+                "entity0.Temp1"
+              ],
+              "uint_spec": {
+                "max": 255,
+                "step": 1,
+                "min": 0
+              },
+              "perm": "W"
+            },
+            "value": 0,
+            "key": "entity0.Temp1",
+            "maximumValue": 255,
+            "minimumValue": 0,
+            "type": "QFloatElement"
+          },
+          {
+            "title": "Temp2",
+            "bind": "floatValue:float",
+            "object": {
+              "action": "entity0",
+              "bind": [
+                "entity0.Temp2"
+              ],
+              "uint_spec": {
+                "max": 255,
+                "step": 1,
+                "min": 0
+              },
+              "perm": "W"
+            },
+            "value": 0,
+            "key": "entity0.Temp2",
+            "maximumValue": 255,
+            "minimumValue": 0,
+            "type": "QFloatElement"
+          },
+          {
+            "title": "Temp3",
+            "bind": "floatValue:float",
+            "object": {
+              "action": "entity0",
+              "bind": [
+                "entity0.Temp3"
+              ],
+              "uint_spec": {
+                "max": 255,
+                "step": 1,
+                "min": 0
+              },
+              "perm": "W"
+            },
+            "value": 0,
+            "key": "entity0.Temp3",
+            "maximumValue": 255,
+            "minimumValue": 0,
+            "type": "QFloatElement"
+          },
+          {
+            "object": {
+              "action": "entity0",
+              "bind": [
+                "entity0.Current_temperature"
+              ],
+              "uint_spec": {
+                "max": 255,
+                "step": 1,
+                "min": 0
+              },
+              "perm": "N"
+            },
+            "type": "QLabelElement",
+            "key": "entity0.Current_temperature",
+            "title": "Current_temperature"
+          },
+          {
+            "object": {
+              "action": "entity0",
+              "bind": [
+                "entity0.Time_filter"
+              ],
+              "uint_spec": {
+                "max": 10200,
+                "step": 1,
+                "min": 0
+              },
+              "perm": "N"
+            },
+            "type": "QLabelElement",
+            "key": "entity0.Time_filter",
+            "title": "Time_filter"
+          }
+        ]
+      }
+    ]
+  }
+}
