@@ -270,9 +270,7 @@
             "boolValue": false,
             "object": {
               "action": "entity0",
-              "bind": [
-                "entity0.Heater"
-              ],
+              "bind": ["entity0.Heater"],
               "perm": "W"
             },
             "type": "QBooleanElement",
@@ -283,9 +281,7 @@
             "boolValue": false,
             "object": {
               "action": "entity0",
-              "bind": [
-                "entity0.Bubble"
-              ],
+              "bind": ["entity0.Bubble"],
               "perm": "W"
             },
             "type": "QBooleanElement",
@@ -296,9 +292,7 @@
             "boolValue": false,
             "object": {
               "action": "entity0",
-              "bind": [
-                "entity0.Filter"
-              ],
+              "bind": ["entity0.Filter"],
               "perm": "W"
             },
             "type": "QBooleanElement",
@@ -309,9 +303,7 @@
             "boolValue": false,
             "object": {
               "action": "entity0",
-              "bind": [
-                "entity0.Fp"
-              ],
+              "bind": ["entity0.Fp"],
               "perm": "W"
             },
             "type": "QBooleanElement",
@@ -322,9 +314,7 @@
             "boolValue": false,
             "object": {
               "action": "entity0",
-              "bind": [
-                "entity0.bit1"
-              ],
+              "bind": ["entity0.bit1"],
               "perm": "W"
             },
             "type": "QBooleanElement",
@@ -335,9 +325,7 @@
             "boolValue": false,
             "object": {
               "action": "entity0",
-              "bind": [
-                "entity0.bit2"
-              ],
+              "bind": ["entity0.bit2"],
               "perm": "W"
             },
             "type": "QBooleanElement",
@@ -349,9 +337,7 @@
             "bind": "floatValue:float",
             "object": {
               "action": "entity0",
-              "bind": [
-                "entity0.Temperature_setup"
-              ],
+              "bind": ["entity0.Temperature_setup"],
               "uint_spec": {
                 "max": 255,
                 "step": 1,
@@ -370,9 +356,7 @@
             "bind": "floatValue:float",
             "object": {
               "action": "entity0",
-              "bind": [
-                "entity0.Temp1"
-              ],
+              "bind": ["entity0.Temp1"],
               "uint_spec": {
                 "max": 255,
                 "step": 1,
@@ -391,9 +375,7 @@
             "bind": "floatValue:float",
             "object": {
               "action": "entity0",
-              "bind": [
-                "entity0.Temp2"
-              ],
+              "bind": ["entity0.Temp2"],
               "uint_spec": {
                 "max": 255,
                 "step": 1,
@@ -412,9 +394,7 @@
             "bind": "floatValue:float",
             "object": {
               "action": "entity0",
-              "bind": [
-                "entity0.Temp3"
-              ],
+              "bind": ["entity0.Temp3"],
               "uint_spec": {
                 "max": 255,
                 "step": 1,
@@ -431,9 +411,7 @@
           {
             "object": {
               "action": "entity0",
-              "bind": [
-                "entity0.Current_temperature"
-              ],
+              "bind": ["entity0.Current_temperature"],
               "uint_spec": {
                 "max": 255,
                 "step": 1,
@@ -448,9 +426,7 @@
           {
             "object": {
               "action": "entity0",
-              "bind": [
-                "entity0.Time_filter"
-              ],
+              "bind": ["entity0.Time_filter"],
               "uint_spec": {
                 "max": 10200,
                 "step": 1,
