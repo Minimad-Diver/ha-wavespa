@@ -14,6 +14,7 @@ assumed.
 from __future__ import annotations
 
 import json
+import logging
 import pathlib
 from typing import Any
 
@@ -59,6 +60,30 @@ OBSERVED_PAYLOAD = bytes.fromhex("05180000001a001600")
 @pytest.fixture(name="schema")
 def schema_fixture() -> DatapointSchema:
     return DatapointSchema(json.loads(_FIXTURE.read_text(encoding="utf8")))
+
+
+def _definition_with_an_exotic_type() -> dict[str, Any]:
+    """A definition holding one datapoint the codec cannot safely read."""
+    return {
+        "entities": [
+            {
+                "attrs": [
+                    {
+                        "name": "Good",
+                        "data_type": "uint8",
+                        "position": {"byte_offset": 0},
+                        "type": "status_writable",
+                    },
+                    {
+                        "name": "Exotic",
+                        "data_type": "binary",
+                        "position": {"byte_offset": 1},
+                        "type": "status_writable",
+                    },
+                ]
+            }
+        ]
+    }
 
 
 class TestSchema:
@@ -113,29 +138,74 @@ class TestSchema:
 
     def test_unsupported_types_are_skipped_not_guessed(self) -> None:
         """A wrong offset on a writable field would be written to hardware."""
-        schema = DatapointSchema(
-            {
-                "entities": [
-                    {
-                        "attrs": [
-                            {
-                                "name": "Good",
-                                "data_type": "uint8",
-                                "position": {"byte_offset": 0},
-                                "type": "status_writable",
-                            },
-                            {
-                                "name": "Exotic",
-                                "data_type": "binary",
-                                "position": {"byte_offset": 1},
-                                "type": "status_writable",
-                            },
-                        ]
-                    }
-                ]
-            }
-        )
+        schema = DatapointSchema(_definition_with_an_exotic_type())
         assert [dp.name for dp in schema.datapoints] == ["Good"]
+
+    def test_a_skipped_datapoint_is_logged(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Otherwise the only symptom is an entity that never gets a value.
+
+        Nothing connects that back to the product definition, so a model this
+        codec cannot fully read would look like a bug in the integration.
+        """
+        with caplog.at_level(logging.WARNING):
+            DatapointSchema(_definition_with_an_exotic_type())
+
+        assert "Exotic" in caplog.text
+        assert "binary" in caplog.text
+
+    def test_a_nameless_datapoint_is_skipped_and_logged(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A datapoint with no name cannot be looked up, so it is unusable."""
+        with caplog.at_level(logging.WARNING):
+            schema = DatapointSchema(
+                {
+                    "entities": [
+                        {
+                            "attrs": [
+                                {
+                                    "name": "Good",
+                                    "data_type": "uint8",
+                                    "position": {"byte_offset": 0},
+                                },
+                                {
+                                    "data_type": "uint8",
+                                    "position": {"byte_offset": 1},
+                                },
+                            ]
+                        }
+                    ]
+                }
+            )
+
+        assert [dp.name for dp in schema.datapoints] == ["Good"]
+        assert "no name" in caplog.text
+
+    def test_a_datapoint_without_a_byte_offset_is_logged(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with caplog.at_level(logging.WARNING):
+            DatapointSchema(
+                {
+                    "entities": [
+                        {
+                            "attrs": [
+                                {
+                                    "name": "Good",
+                                    "data_type": "uint8",
+                                    "position": {"byte_offset": 0},
+                                },
+                                {"name": "Placeless", "data_type": "uint8"},
+                            ]
+                        }
+                    ]
+                }
+            )
+
+        assert "Placeless" in caplog.text
+        assert "byte offset" in caplog.text
 
 
 class TestDecode:

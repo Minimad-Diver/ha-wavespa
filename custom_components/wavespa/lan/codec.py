@@ -17,7 +17,10 @@ Verified against a real Wave Spa Garda: its reported state round-trips to
 from __future__ import annotations
 
 from dataclasses import dataclass
+from logging import getLogger
 from typing import Any
+
+_LOGGER = getLogger(__name__)
 
 # Types seen in Wave Spa's definition. Anything else is skipped rather than
 # guessed at, because a wrong offset on a writable datapoint means writing to
@@ -73,14 +76,35 @@ class DatapointSchema:
 
     @staticmethod
     def _parse_attr(attr: dict[str, Any]) -> Datapoint | None:
-        """Convert one attr entry, or None if we cannot handle it safely."""
+        """Convert one attr entry, or None if we cannot handle it safely.
+
+        Every skip is logged. Dropping a datapoint costs an entity its value,
+        and without a line in the log the only symptom is a sensor that never
+        populates - with nothing to connect it to the product definition.
+        """
         data_type = attr.get("data_type")
         name = attr.get("name")
         position = attr.get("position") or {}
 
-        if not name or data_type not in _SUPPORTED_TYPES:
+        if not name:
+            _LOGGER.warning(
+                "Product definition contains a datapoint with no name; skipping it"
+            )
+            return None
+        if data_type not in _SUPPORTED_TYPES:
+            _LOGGER.warning(
+                "Skipping datapoint '%s': the codec does not handle data type '%s', "
+                "so anything reading it will have no value over the LAN",
+                name,
+                data_type,
+            )
             return None
         if "byte_offset" not in position:
+            _LOGGER.warning(
+                "Skipping datapoint '%s': the product definition gives it no "
+                "byte offset, and guessing one risks reading the wrong field",
+                name,
+            )
             return None
 
         return Datapoint(
