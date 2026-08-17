@@ -126,6 +126,11 @@ class WavespaDevice:
     is_online: bool
     ws_host: str = "m2m.gizwits.com"  # WebSocket hostname from bindings API
     ws_port: int = 8880  # WebSocket port from bindings API
+    # Identifies the product, not this unit, and is the lookup key for the
+    # datapoint definition the LAN transport decodes status with. Empty if the
+    # bindings response omitted it, which only costs that device local
+    # control - the cloud transport needs nothing from it.
+    product_key: str = ""
 
     @property
     def device_type(self) -> WavespaDeviceType:

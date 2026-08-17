@@ -276,6 +276,26 @@ class TestRefreshBindings:
         assert api.devices["did123"].ws_host == "eu.example.com"
         assert api.devices["did123"].ws_port == 1234
 
+    async def test_product_key_is_captured(self) -> None:
+        """The lookup key for the datapoint definition the LAN decodes with."""
+        binding = dict(self._BINDING) | {"product_key": "747be354e00449e7"}
+        api = _api(_response(json_body={"devices": [binding]}))
+
+        await api.refresh_bindings()
+
+        assert api.devices["did123"].product_key == "747be354e00449e7"
+
+    async def test_a_missing_product_key_does_not_fail_setup(self) -> None:
+        """Only the LAN needs it, so its absence must cost local control and
+        nothing else - the cloud transport works without it."""
+        api = _api(_response(json_body={"devices": [dict(self._BINDING)]}))
+
+        await api.refresh_bindings()
+
+        device = api.devices["did123"]
+        assert device.product_key == ""
+        assert device.device_type is WavespaDeviceType.WAVESPA_EU
+
     async def test_refresh_replaces_the_previous_map(self) -> None:
         """A device that disappears from the account stops being tracked."""
         api = _api(_response(json_body={"devices": [dict(self._BINDING)]}))

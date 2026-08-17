@@ -190,6 +190,10 @@ class WavespaApi:
                 raw["is_online"],
                 ws_host=raw.get("host", "m2m.gizwits.com"),
                 ws_port=raw.get("wss_port", 8880),
+                # Read defensively rather than indexed like did/protoc above:
+                # only the LAN transport needs it, so an account whose bindings
+                # omit it should lose local control, not fail setup outright.
+                product_key=raw.get("product_key", ""),
             )
             for raw in api_data["devices"]
         ]
