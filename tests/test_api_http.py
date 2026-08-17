@@ -171,6 +171,35 @@ class TestRequests:
         assert headers["X-Gizwits-User-token"] == "tok3n"
 
 
+class TestGetDatapointDefinition:
+    """The product definition the LAN transport decodes payloads with."""
+
+    async def test_requests_the_definition_for_the_product(self) -> None:
+        api = _api(_response(json_body={"product_key": "abc", "entities": []}))
+
+        result = await api.get_datapoint_definition("abc")
+
+        assert result == {"product_key": "abc", "entities": []}
+        assert _session(api).get.call_args.args[0] == (
+            "http://api/app/datapoint?product_key=abc"
+        )
+
+    async def test_uses_the_accounts_regional_host(self) -> None:
+        """Not api.gizwits.com, whose TLS chain does not validate."""
+        api = _api(_response(json_body={}))
+
+        await api.get_datapoint_definition("abc")
+
+        assert _session(api).get.call_args.args[0].startswith("http://api/")
+
+    async def test_an_error_response_raises(self) -> None:
+        """A failed fetch must not read as a product with no datapoints."""
+        api = _api(_response(ok=False, json_body={"error_code": 9004}))
+
+        with pytest.raises(WavespaTokenInvalidException):
+            await api.get_datapoint_definition("abc")
+
+
 class TestGetUserToken:
     """Login, the one call made before an API instance exists."""
 

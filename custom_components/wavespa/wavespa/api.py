@@ -194,6 +194,28 @@ class WavespaApi:
             for raw in api_data["devices"]
         ]
 
+    async def get_datapoint_definition(self, product_key: str) -> dict[str, Any]:
+        """Fetch the datapoint definition describing a product's LAN payload.
+
+        This is what lets the LAN transport decode status without bundling a
+        layout per model: the definition names every datapoint and its position
+        in the payload, and its names are the same ones this API returns as
+        attrs. A new spa model therefore needs no code change, only its
+        product_key, which the bindings response carries.
+
+        Verified against the real endpoint: euapi and usapi both serve it over
+        HTTPS, byte-identical. Deliberately uses the account's own regional
+        api_root rather than api.gizwits.com, which is the host documented
+        elsewhere but has a broken TLS certificate chain.
+
+        The definition is static per product, so callers should cache it rather
+        than fetch it per connection. No authentication is needed, though
+        _do_get sends the user token regardless.
+        """
+        return await self._do_get(
+            f"{self._api_root}/app/datapoint?product_key={product_key}"
+        )
+
     async def fetch_data(self) -> WavespaApiResults:
         """Fetch the latest data for all devices.
 
