@@ -13,7 +13,13 @@ from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
-from .const import CONF_PASSWORD, CONF_UID, CONF_USER_TOKEN, CONF_USERNAME
+from .const import (
+    CONF_LAN_HOST,
+    CONF_PASSWORD,
+    CONF_UID,
+    CONF_USER_TOKEN,
+    CONF_USERNAME,
+)
 from .coordinator import WavespaConfigEntry
 
 # Credentials and account identifiers. The device attrs themselves carry no
@@ -30,6 +36,9 @@ TO_REDACT = {
     "mac",
     "passcode",
     "product_key",
+    # The spa's address on the user's own network. Not a credential, but it
+    # describes their LAN, and the options blob it lives in is dumped whole.
+    CONF_LAN_HOST,
 }
 
 
@@ -44,9 +53,18 @@ async def async_get_config_entry_diagnostics(
     for device_id, device in api.devices.items():
         status = coordinator.data.devices.get(device_id) if coordinator.data else None
         last_push = coordinator.last_websocket_update(device_id)
+        last_lan = coordinator.last_lan_update(device_id)
         devices.append(
             {
                 "device_id": device_id,
+                # Same treatment as the WebSocket timestamp, and the first
+                # thing worth knowing about a "local control isn't working"
+                # report: None means this spa has never delivered over the LAN.
+                "last_lan_update": (
+                    dt_util.utc_from_timestamp(last_lan).isoformat()
+                    if last_lan is not None
+                    else None
+                ),
                 # Rendered rather than reported as a raw epoch float, which is
                 # unreadable in a pasted diagnostics dump. None means this spa
                 # has pushed nothing since setup.
@@ -89,6 +107,13 @@ async def async_get_config_entry_diagnostics(
                 "websocket_connected": (
                     coordinator.websocket.is_connected
                     if coordinator.websocket is not None
+                    else None
+                ),
+                # None distinguishes "local control is switched off" from
+                # "configured but not connecting", which are different bugs.
+                "lan_connected": (
+                    coordinator.lan.is_connected
+                    if coordinator.lan is not None
                     else None
                 ),
             },

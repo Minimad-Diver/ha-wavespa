@@ -4,6 +4,7 @@ The point of the download is the raw attr dictionary, so these check that the
 attrs survive verbatim while credentials and identifiers do not.
 """
 
+import json
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -49,6 +50,8 @@ def _make_entry() -> MagicMock:
     coordinator.last_update_success = True
     coordinator.websocket.is_connected = True
     coordinator.last_websocket_update = MagicMock(return_value=None)
+    coordinator.lan.is_connected = True
+    coordinator.last_lan_update = MagicMock(return_value=None)
 
     entry = MagicMock()
     entry.version = 2
@@ -134,6 +137,37 @@ class TestContent:
 
         diag = await async_get_config_entry_diagnostics(MagicMock(), entry)
         assert diag["coordinator"]["websocket_connected"] is None
+
+    async def test_lan_state_is_reported(self) -> None:
+        diag = await _diag()
+        assert diag["coordinator"]["lan_connected"] is True
+
+    async def test_handles_no_lan_session(self) -> None:
+        """None distinguishes local control being off from it failing to
+        connect, which are different bugs."""
+        entry = _make_entry()
+        entry.runtime_data.lan = None
+
+        diag = await async_get_config_entry_diagnostics(MagicMock(), entry)
+        assert diag["coordinator"]["lan_connected"] is None
+
+    async def test_the_lan_host_is_redacted(self) -> None:
+        """Not a credential, but it describes the user's own network and the
+        options blob is dumped whole."""
+        entry = _make_entry()
+        entry.options = {"lan_host": "192.0.2.10"}
+
+        diag = await async_get_config_entry_diagnostics(MagicMock(), entry)
+
+        assert "192.0.2.10" not in json.dumps(diag)
+
+    async def test_last_lan_update_is_reported(self) -> None:
+        entry = _make_entry()
+        entry.runtime_data.last_lan_update.return_value = 1_700_000_000.0
+
+        diag = await async_get_config_entry_diagnostics(MagicMock(), entry)
+
+        assert diag["devices"][0]["last_lan_update"] == "2023-11-14T22:13:20+00:00"
 
 
 class TestLastWebsocketUpdate:

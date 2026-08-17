@@ -301,13 +301,16 @@ class WavespaOptionsFlow(OptionsFlow):
                     CONF_FILTER_WATTS,
                     default=options.get(CONF_FILTER_WATTS, DEFAULT_FILTER_WATTS),
                 ): _WATTS_SELECTOR,
-                # Optional, and empty is the supported way to turn local
-                # control back off - vol.Optional with a "" default keeps the
-                # box present but blank rather than making the user delete a
-                # placeholder.
+                # Empty is the supported way to turn local control back off,
+                # which is why the saved host is a *suggested value* and not
+                # the schema default. The frontend omits an emptied optional
+                # field from the submitted data, so a default would resolve
+                # right back to the old address and there would be no way to
+                # switch local control off from the UI at all.
                 vol.Optional(
                     CONF_LAN_HOST,
-                    default=options.get(CONF_LAN_HOST, ""),
+                    default="",
+                    description={"suggested_value": options.get(CONF_LAN_HOST, "")},
                 ): selector.TextSelector(
                     selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
                 ),

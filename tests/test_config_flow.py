@@ -163,6 +163,87 @@ async def test_options_flow_sets_wattages(hass):
     assert config_entry.options[CONF_FILTER_WATTS] == 40
 
 
+async def test_options_flow_sets_the_lan_host(hass):
+    """Entering an address is how local control gets switched on."""
+    from custom_components.wavespa.const import (
+        CONF_BUBBLES_WATTS,
+        CONF_FILTER_WATTS,
+        CONF_HEATER_WATTS,
+        CONF_LAN_HOST,
+    )
+
+    config_entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_USERNAME: "test@example.org",
+            CONF_PASSWORD: "P@asw0rd",
+            CONF_API_ROOT: CONF_API_ROOT_EU,
+            CONF_UID: "uid",
+        },
+        version=2,
+        entry_id="options_lan",
+    )
+    config_entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(config_entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            CONF_HEATER_WATTS: 1800,
+            CONF_BUBBLES_WATTS: 600,
+            CONF_FILTER_WATTS: 50,
+            CONF_LAN_HOST: "192.0.2.10",
+        },
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert config_entry.options[CONF_LAN_HOST] == "192.0.2.10"
+
+
+async def test_options_flow_can_clear_the_lan_host(hass):
+    """Emptying the box must actually turn local control off.
+
+    The frontend omits an emptied optional field from the submitted data, so
+    with the saved host as the schema *default* this resolved straight back to
+    the old address - leaving no way to switch local control off from the UI.
+    The host is a suggested value for exactly this reason.
+    """
+    from custom_components.wavespa.const import (
+        CONF_BUBBLES_WATTS,
+        CONF_FILTER_WATTS,
+        CONF_HEATER_WATTS,
+        CONF_LAN_HOST,
+    )
+
+    config_entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_USERNAME: "test@example.org",
+            CONF_PASSWORD: "P@asw0rd",
+            CONF_API_ROOT: CONF_API_ROOT_EU,
+            CONF_UID: "uid",
+        },
+        options={CONF_LAN_HOST: "192.0.2.10"},
+        version=2,
+        entry_id="options_lan_clear",
+    )
+    config_entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(config_entry.entry_id)
+    # Exactly what the frontend sends when the box is emptied: the key absent.
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            CONF_HEATER_WATTS: 1800,
+            CONF_BUBBLES_WATTS: 600,
+            CONF_FILTER_WATTS: 50,
+        },
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert not config_entry.options.get(CONF_LAN_HOST)
+
+
 async def test_options_flow_defaults_to_current_values(hass):
     """The form opens on the defaults rather than empty."""
     config_entry = MockConfigEntry(

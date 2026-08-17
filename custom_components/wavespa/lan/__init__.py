@@ -1,18 +1,18 @@
 """Gizwits LAN protocol support.
 
-Groundwork for controlling the spa directly over the local network instead of
-through the Gizwits cloud. Nothing in the integration imports this yet - it is
-built and tested in isolation first, so that a released component cannot be
-destabilised by work in progress.
+Reads the spa's state directly over the local network instead of through the
+Gizwits cloud. Used by the coordinator when a spa address is configured in the
+integration options; with none set, local control is off and the cloud is the
+only transport.
 
-The protocol splits cleanly into two layers, and this package currently covers
-only the two that need no device to test:
+Still read-only. Commands are sent over the cloud, because a wrong byte offset
+on a write changes physical state on someone's spa - see the write path issue.
 
 - `framing`: the transport envelope, identical for every Gizwits product.
 - `codec`: turning a datapoint payload into the same attribute dictionary the
   cloud API returns, driven by the product's own definition.
-- `session`: a read-only TCP session - connect, authenticate, read status, and
-  stay alive. Writing datapoints lands separately.
+- `session`: a TCP session - connect, authenticate, read status, and stay
+  alive, reporting state changes the spa announces unprompted.
 
 Protocol details were derived from chrisc123/jebao_aqua-homeassistant (MIT),
 and verified against a real Wave Spa Garda.
