@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import pathlib
 from typing import Any
 
@@ -80,14 +81,17 @@ class FakeDevice:
         login_result: int = 0,
         answer_status: bool = True,
         passcode: bytes = PASSCODE,
+        status_payload: bytes = STATUS_PAYLOAD,
     ) -> None:
         self.reader = asyncio.StreamReader()
         self.writer = FakeWriter(self)
         self.login_result = login_result
         self.answer_status = answer_status
         self.passcode = passcode
+        self.status_payload = status_payload
         self.pings_received = 0
         self.status_requests = 0
+        self.connections = 0
 
     def feed_request(self, data: bytes) -> None:
         """Respond to whatever the session just sent."""
@@ -106,7 +110,7 @@ class FakeDevice:
                     # because silence is what the hardware does.
                     continue
                 if self.answer_status:
-                    self._reply(CMD_STATUS_RESPONSE, STATUS_PAYLOAD)
+                    self._reply(CMD_STATUS_RESPONSE, self.status_payload)
             elif frame.cmd == CMD_PING:
                 self.pings_received += 1
                 self._reply(0x0016)
@@ -122,6 +126,7 @@ class FakeDevice:
         self.reader.feed_eof()
 
     async def connector(self, host: str, port: int) -> tuple[asyncio.StreamReader, Any]:
+        self.connections += 1
         return self.reader, self.writer
 
 
@@ -454,6 +459,65 @@ class TestSupervisor:
 
         task = asyncio.create_task(session.async_run())
         await asyncio.sleep(0.05)
+        await session.disconnect()
+        async with asyncio.timeout(2):
+            await task
+
+    async def test_an_undecodable_spa_stops_the_supervisor(
+        self, schema: DatapointSchema, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Retrying cannot fix a payload that does not match the schema.
+
+        The device has a small fixed pool of connection slots: reconnecting
+        forever against a spa we can never decode leaves it answering nothing
+        at all for about five minutes, the phone app included. Measured on
+        real hardware, which is why this is a correctness requirement rather
+        than politeness.
+        """
+        monkeypatch.setattr(
+            "custom_components.wavespa.lan.session._RECONNECT_DELAYS", (0.01,)
+        )
+        device = FakeDevice(status_payload=bytes([0x04]) + bytes(4))
+        session, updates = make_session(schema, device)
+
+        task = asyncio.create_task(session.async_run())
+        async with asyncio.timeout(2):
+            await task
+
+        assert device.connections == 1, "gave up, but only after trying again"
+        assert session.is_connected is False
+        assert updates == []
+
+    async def test_an_undecodable_spa_is_reported(
+        self, schema: DatapointSchema, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Silently dropping to cloud-only would be indistinguishable from
+        the LAN never having been attempted."""
+        device = FakeDevice(status_payload=bytes([0x04]) + bytes(4))
+        session, _ = make_session(schema, device)
+
+        with caplog.at_level(logging.ERROR):
+            async with asyncio.timeout(2):
+                await session.async_run()
+
+        assert "cannot decode" in caplog.text
+
+    async def test_a_transient_failure_still_retries(
+        self, schema: DatapointSchema, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Giving up must be reserved for the permanent case."""
+        monkeypatch.setattr(
+            "custom_components.wavespa.lan.session._RECONNECT_DELAYS", (0.01,)
+        )
+        device = FakeDevice()
+        session, _ = make_session(schema, device)
+
+        task = asyncio.create_task(session.async_run())
+        await asyncio.sleep(0.05)
+        device.close()  # the spa hangs up
+        await asyncio.sleep(0.1)
+
+        assert device.connections > 1
         await session.disconnect()
         async with asyncio.timeout(2):
             await task

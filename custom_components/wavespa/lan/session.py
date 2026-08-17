@@ -27,7 +27,7 @@ from collections.abc import Awaitable, Callable
 from logging import getLogger
 from typing import Any
 
-from .codec import DatapointSchema, decode_attrs, require_datapoints
+from .codec import CodecError, DatapointSchema, decode_attrs, require_datapoints
 from .framing import (
     CMD_LOGIN,
     CMD_LOGIN_RESPONSE,
@@ -157,11 +157,29 @@ class GizwitsLanSession:
                 await self._serve()
             except asyncio.CancelledError:
                 raise
+            except CodecError as err:
+                # The spa's payload does not match the schema. Retrying cannot
+                # fix that, and the device has a small fixed pool of connection
+                # slots - reconnecting forever against a spa we can never
+                # decode leaves it answering nothing at all for about five
+                # minutes, the phone app included. Stop, and leave the cloud
+                # transport to it.
+                _LOGGER.error(
+                    "LAN session to %s cannot decode this spa's status: %s. "
+                    "Giving up on the LAN; the integration carries on over "
+                    "the cloud",
+                    self._host,
+                    err,
+                )
+                self._close_event.set()
             except Exception as err:  # pylint: disable=broad-except
                 _LOGGER.warning("LAN session to %s failed: %s", self._host, err)
             finally:
                 await self._teardown()
 
+            # A permanent decode failure sets the close event above, so it
+            # leaves here the same way disconnect() does: an orderly stop, not
+            # a dropped connection, and so not a disconnect callback.
             if self._close_event.is_set():
                 break
             if was_connected:
