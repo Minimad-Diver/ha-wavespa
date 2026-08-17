@@ -246,9 +246,25 @@ class TestDecode:
 class TestEncode:
     """Attributes in, payload out."""
 
-    def test_unknown_attributes_are_ignored(self, schema: DatapointSchema) -> None:
-        """Cloud responses may carry fields this product does not have."""
-        assert encode_attrs(schema, {"NoSuchField": 1}) == bytes(9)
+    def test_unknown_attributes_are_rejected(self, schema: DatapointSchema) -> None:
+        """Once this feeds the write path, silently dropping a field would
+        report a command as sent that the spa never acted on.
+
+        Callers holding a cloud attribute dictionary that may carry fields
+        this product lacks should filter it themselves, so that dropping one
+        is a decision rather than an accident.
+        """
+        with pytest.raises(CodecError, match="NoSuchField"):
+            encode_attrs(schema, {"NoSuchField": 1})
+
+    def test_a_filtered_cloud_dictionary_still_encodes(
+        self, schema: DatapointSchema
+    ) -> None:
+        """The supported way to handle attributes of uncertain provenance."""
+        cloud_attrs = {"Heater": 1, "SomeFutureField": 7}
+        known = {k: v for k, v in cloud_attrs.items() if schema.by_name(k)}
+
+        assert encode_attrs(schema, known)[0] == 1
 
     def test_partial_attributes_leave_the_rest_clear(
         self, schema: DatapointSchema

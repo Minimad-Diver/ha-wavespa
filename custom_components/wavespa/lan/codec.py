@@ -167,13 +167,21 @@ def encode_attrs(schema: DatapointSchema, attrs: dict[str, Any]) -> bytes:
 
     Mainly for tests and for round-tripping: a write uses the partial form,
     which carries only the fields being changed.
+
+    A name the product does not have is an error. Skipping it would encode a
+    payload that quietly omits what the caller asked for, and once this feeds
+    the write path that is a command reported as sent which the spa never
+    acted on. Callers holding a cloud attribute dictionary that may carry
+    extra fields should filter it against `schema.by_name` first, so that
+    dropping a field is something they decided rather than something that
+    happened to them.
     """
     buffer = bytearray(schema.payload_size)
 
     for name, value in attrs.items():
         dp = schema.by_name(name)
         if dp is None:
-            continue  # a field this product does not have
+            raise CodecError(f"product has no datapoint named '{name}'")
 
         if dp.data_type == "bool":
             if int(value):
