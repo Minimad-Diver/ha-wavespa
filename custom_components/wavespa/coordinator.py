@@ -11,6 +11,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
+from .lan import GizwitsLanSession
 from .wavespa.api import WavespaApi, WavespaApiResults, WavespaAuthException
 from .wavespa.websocket import GizwitsWebSocket
 
@@ -20,8 +21,8 @@ _LOGGER = getLogger(__name__)
 type WavespaConfigEntry = ConfigEntry["WavespaUpdateCoordinator"]
 
 # How often to poll the cloud API when it's the only source of state, and the
-# slower rate used once the WebSocket is delivering pushes and polling is just
-# a safety net.
+# slower rate used once a push transport - the WebSocket, the LAN, or both - is
+# delivering updates and polling is just a safety net.
 _POLL_INTERVAL = timedelta(seconds=30)
 _WEBSOCKET_POLL_INTERVAL = timedelta(seconds=300)
 
@@ -49,6 +50,19 @@ class WavespaUpdateCoordinator(DataUpdateCoordinator[WavespaApiResults]):
         # Set by async_setup_entry once the client is built; None when no
         # UID is stored or the account has no devices to subscribe to.
         self.websocket: GizwitsWebSocket | None = None
+        # Set by async_setup_entry when a LAN host is configured; None when
+        # local control is off, which is the default.
+        self.lan: GizwitsLanSession | None = None
+        # Wall-clock time of the last LAN push, and which device it belongs
+        # to. A single session serves one spa - see async_setup_entry for why
+        # a multi-device account does not get one.
+        self._lan_device_id: str | None = None
+        self._lan_last_update: float | None = None
+        # Which push transports are currently delivering. Polling slows down
+        # while either is live and speeds back up only when both have stopped,
+        # so losing one transport does not undo the other's saving.
+        self._ws_active = False
+        self._lan_active = False
 
     ## fix from https://github.com/cdpuk/ha-bestway/issues/86
     async def _async_update_data(self) -> WavespaApiResults:
@@ -145,30 +159,104 @@ class WavespaUpdateCoordinator(DataUpdateCoordinator[WavespaApiResults]):
     def handle_websocket_disconnect(self) -> None:
         """Handle WebSocket disconnection.
 
-        Increases polling frequency to 30 seconds as fallback when
-        WebSocket connection is lost. This ensures the integration
-        continues functioning reliably even without real-time updates.
+        Returns to 30-second polling unless another push transport is still
+        delivering, in which case the slower rate is still justified.
         """
-        if self.update_interval == _POLL_INTERVAL:
-            return
-
-        _LOGGER.warning("WebSocket disconnected, reverting to 30-second polling")
-        self.update_interval = _POLL_INTERVAL
+        self._ws_active = False
+        self._apply_poll_interval()
 
     def set_websocket_active(self) -> None:
         """Set polling interval for WebSocket-active mode.
 
-        Reduces polling frequency to 5 minutes when WebSocket is providing
-        real-time updates. Polling continues as a safety net to catch any
-        missed updates or handle WebSocket connection issues.
-
         Called on every successful connection, not just the first, so that
         polling drops back down again after the feed recovers from an outage.
-        A flapping connection would otherwise log on every attempt, so the
-        message is only emitted when the interval actually changes.
         """
-        if self.update_interval == _WEBSOCKET_POLL_INTERVAL:
+        self._ws_active = True
+        self._apply_poll_interval()
+
+    def set_lan_active(self) -> None:
+        """Record that the LAN session is connected and delivering."""
+        self._lan_active = True
+        self._apply_poll_interval()
+
+    def handle_lan_disconnect(self) -> None:
+        """Record that the LAN session has dropped."""
+        self._lan_active = False
+        self._apply_poll_interval()
+
+    def _apply_poll_interval(self) -> None:
+        """Pick the polling rate from which push transports are delivering.
+
+        Polling is the safety net, so it only slows down while something is
+        pushing and speeds back up once nothing is. Tracking the transports
+        separately matters: with a single interval flag, the LAN dropping
+        would have undone the WebSocket's saving and left a perfectly healthy
+        push feed polling every 30 seconds.
+
+        A flapping connection calls this repeatedly, so the message is emitted
+        only when the interval actually changes.
+        """
+        wanted = (
+            _WEBSOCKET_POLL_INTERVAL
+            if (self._ws_active or self._lan_active)
+            else _POLL_INTERVAL
+        )
+        if self.update_interval == wanted:
             return
 
-        _LOGGER.info("WebSocket active, reducing polling to 5-minute intervals")
-        self.update_interval = _WEBSOCKET_POLL_INTERVAL
+        if wanted == _POLL_INTERVAL:
+            _LOGGER.warning("No push transport connected, reverting to 30s polling")
+        else:
+            live = ", ".join(
+                name
+                for name, active in (
+                    ("WebSocket", self._ws_active),
+                    ("LAN", self._lan_active),
+                )
+                if active
+            )
+            _LOGGER.info("%s active, reducing polling to 5-minute intervals", live)
+
+        self.update_interval = wanted
+
+    def handle_lan_update(self, attrs: dict[str, Any]) -> None:
+        """Apply a status decoded from the local network.
+
+        The LAN sends a full status rather than a delta, but this still merges
+        rather than replaces, so a field the product does not report keeps its
+        last known value exactly as it does for a WebSocket delta.
+
+        Identical frames are dropped. A single state change was measured
+        arriving as a burst of three frames within 2.5 seconds - one of them
+        byte-identical to the one before it - so without this every toggle
+        would wake every entity two or three times over.
+        """
+        device_id = self._lan_device_id
+        if device_id is None or device_id not in self.api.devices:
+            _LOGGER.warning("Discarding a LAN update with no device to apply it to")
+            return
+
+        self._lan_last_update = time()
+
+        cached = self.data.devices.get(device_id) if self.data else None
+        if cached is not None and all(
+            cached.attrs.get(key) == value for key, value in attrs.items()
+        ):
+            _LOGGER.debug("Ignoring a LAN status identical to the cached state")
+            return
+
+        _LOGGER.debug(
+            "LAN update for device %s with %d attributes", device_id, len(attrs)
+        )
+        self.api.merge_device_attrs(device_id, attrs)
+        self.async_set_updated_data(self.api.cached_results())
+
+    def last_lan_update(self, device_id: str) -> float | None:
+        """Return when the LAN last delivered a status for this device."""
+        if device_id != self._lan_device_id:
+            return None
+        return self._lan_last_update
+
+    def set_lan_device(self, device_id: str) -> None:
+        """Name the device the LAN session speaks for."""
+        self._lan_device_id = device_id
