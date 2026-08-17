@@ -35,6 +35,7 @@ from .const import (
     CONF_API_ROOT,
     CONF_API_ROOT_EU,
     CONF_API_ROOT_US,
+    CONF_LAN_HOST,
     CONF_PASSWORD,
     CONF_UID,
     CONF_USER_TOKEN,
@@ -265,12 +266,17 @@ class WavespaConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class WavespaOptionsFlow(OptionsFlow):
-    """Adjust the wattages behind the estimated power and energy sensors.
+    """Adjust the wattage assumptions, and optionally enable local control.
 
-    These are modelled, not metered: different models draw different amounts,
-    and the EU and US variants differ on mains voltage alone. Because the
-    numbers feed the Energy dashboard, a spa that does not match the defaults
-    was silently accumulating wrong kWh with no supported way to correct it.
+    The wattages are modelled, not metered: different models draw different
+    amounts, and the EU and US variants differ on mains voltage alone. Because
+    the numbers feed the Energy dashboard, a spa that does not match the
+    defaults was silently accumulating wrong kWh with no supported way to
+    correct it.
+
+    The LAN host is blank by default. Local control needs an address that does
+    not move, which is the user's job to arrange, so it is offered rather than
+    assumed.
     """
 
     async def async_step_init(
@@ -295,6 +301,16 @@ class WavespaOptionsFlow(OptionsFlow):
                     CONF_FILTER_WATTS,
                     default=options.get(CONF_FILTER_WATTS, DEFAULT_FILTER_WATTS),
                 ): _WATTS_SELECTOR,
+                # Optional, and empty is the supported way to turn local
+                # control back off - vol.Optional with a "" default keeps the
+                # box present but blank rather than making the user delete a
+                # placeholder.
+                vol.Optional(
+                    CONF_LAN_HOST,
+                    default=options.get(CONF_LAN_HOST, ""),
+                ): selector.TextSelector(
+                    selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
+                ),
             }
         )
         return self.async_show_form(step_id="init", data_schema=schema)

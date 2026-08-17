@@ -26,3 +26,9 @@ CONF_FILTER_WATTS = "filter_watts"
 DEFAULT_HEATER_WATTS = 1800
 DEFAULT_BUBBLES_WATTS = 600
 DEFAULT_FILTER_WATTS = 50
+
+# Options: the spa's address on the local network. Empty means the LAN
+# transport is off and the integration behaves exactly as it always has -
+# local control is opt-in, because it needs a fixed address the user has to
+# arrange (a DHCP reservation) and a wrong one would just log failures.
+CONF_LAN_HOST = "lan_host"

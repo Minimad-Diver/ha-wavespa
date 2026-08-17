@@ -11,12 +11,14 @@ from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
+from .lan import CodecError, DatapointSchema, GizwitsLanSession
 from .wavespa.api import WavespaApi, WavespaAuthException
 from .wavespa.websocket import GizwitsWebSocket
 from .const import (
     CONFIG_VERSION,
     CONF_API_ROOT,
     CONF_API_ROOT_EU,
+    CONF_LAN_HOST,
     CONF_PASSWORD,
     CONF_UID,
     CONF_USER_TOKEN,
@@ -72,6 +74,82 @@ _PLATFORMS: list[Platform] = [
     Platform.SENSOR,
     Platform.SWITCH,
 ]
+
+
+async def _async_setup_lan(
+    hass: HomeAssistant,
+    entry: WavespaConfigEntry,
+    coordinator: WavespaUpdateCoordinator,
+    api: WavespaApi,
+) -> None:
+    """Start a local-network session if one is configured and possible.
+
+    Opt-in and best-effort throughout: every way this can fail leaves the
+    cloud transport running and logs why, because local control is an
+    enhancement and losing it must never cost the user their spa entities.
+
+    Confirmed against real hardware that the LAN announces state changes
+    unprompted, so this feeds the same cache the WebSocket does rather than
+    needing a polling design of its own.
+    """
+    host = str(entry.options.get(CONF_LAN_HOST) or "").strip()
+    if not host:
+        _LOGGER.debug("No LAN host configured, local control is off")
+        return
+
+    if len(api.devices) != 1:
+        # A single configured address cannot be attributed to one of several
+        # spas, and guessing would show one spa's readings on another - a far
+        # worse outcome than simply not offering local control. Multi-spa
+        # support needs discovery, which can match a device by its DID.
+        _LOGGER.warning(
+            "LAN host is configured but the account has %d devices; local "
+            "control supports one and has been left off",
+            len(api.devices),
+        )
+        return
+
+    device_id, device = next(iter(api.devices.items()))
+
+    if not device.product_key:
+        _LOGGER.warning(
+            "No product_key for device %s, so its datapoint layout cannot be "
+            "fetched; local control is off",
+            device_id,
+        )
+        return
+
+    try:
+        definition = await api.get_datapoint_definition(device.product_key)
+        schema = DatapointSchema(definition)
+        session = GizwitsLanSession(
+            host,
+            schema,
+            coordinator.handle_lan_update,
+            connect_callback=coordinator.set_lan_active,
+            disconnect_callback=coordinator.handle_lan_disconnect,
+        )
+    except CodecError as err:
+        # The product's definition cannot drive our entities - a different
+        # model, or a renamed datapoint. Permanent, so say so plainly.
+        _LOGGER.warning("Local control is not available for this spa: %s", err)
+        return
+    except Exception as err:  # pylint: disable=broad-except
+        _LOGGER.warning("Could not set up local control, staying on the cloud: %s", err)
+        return
+
+    coordinator.set_lan_device(device_id)
+    coordinator.lan = session
+
+    # Tracked, so HA cancels it on unload. An untracked task would keep
+    # reconnecting after a reload and hold one of the spa's few connection
+    # slots for a session nothing is listening to.
+    entry.async_create_background_task(
+        hass,
+        session.async_run(),
+        f"{DOMAIN}-{entry.entry_id}-lan",
+    )
+    _LOGGER.debug("LAN session to %s started for device %s", host, device_id)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: WavespaConfigEntry) -> bool:
@@ -180,6 +258,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: WavespaConfigEntry) -> b
 
     coordinator.websocket = ws_client
 
+    await _async_setup_lan(hass, entry, coordinator, api)
+
     _async_remove_obsolete_entities(hass, entry)
 
     entry.runtime_data = coordinator
@@ -197,6 +277,14 @@ async def async_unload_entry(hass: HomeAssistant, entry: WavespaConfigEntry) -> 
     if coordinator.websocket is not None:
         await coordinator.websocket.disconnect()
         _LOGGER.debug("WebSocket client disconnected")
+
+    # Close the LAN session explicitly rather than relying on the background
+    # task being cancelled. The spa has a small fixed pool of connection slots
+    # and reclaims one only on a clean close or a timeout, so a reload that
+    # abandoned the socket would burn a slot each time.
+    if coordinator.lan is not None:
+        await coordinator.lan.disconnect()
+        _LOGGER.debug("LAN session disconnected")
 
     unload_ok: bool = await hass.config_entries.async_unload_platforms(
         entry, _PLATFORMS

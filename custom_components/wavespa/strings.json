@@ -79,12 +79,13 @@
   "options": {
     "step": {
       "init": {
-        "title": "Estimated power assumptions",
-        "description": "The Estimated Power and Estimated Energy sensors are modelled, not measured. Set the power each load actually draws on your spa so the Energy dashboard reflects it.",
+        "title": "Power assumptions and local control",
+        "description": "The Estimated Power and Estimated Energy sensors are modelled, not measured. Set the power each load actually draws on your spa so the Energy dashboard reflects it.\n\nOptionally, enter your spa's IP address to control it over your local network instead of the cloud. Give the spa a fixed address in your router first, or it will stop working when the address changes. Leave blank to use the cloud only.",
         "data": {
           "heater_watts": "Heater",
           "bubbles_watts": "Bubbles",
-          "filter_watts": "Filter pump"
+          "filter_watts": "Filter pump",
+          "lan_host": "Spa IP address (optional, for local control)"
         }
       }
     }
