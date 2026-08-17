@@ -18,11 +18,20 @@ Protocol details were derived from chrisc123/jebao_aqua-homeassistant (MIT),
 and verified against a real Wave Spa Garda.
 """
 
-from .codec import DatapointSchema, decode_attrs, encode_attrs
+from .codec import (
+    REQUIRED_DATAPOINTS,
+    CodecError,
+    DatapointSchema,
+    decode_attrs,
+    encode_attrs,
+    require_datapoints,
+)
 from .framing import Frame, pack, unpack
 from .session import GizwitsLanSession, LanSessionError, LoginRefused
 
 __all__ = [
+    "REQUIRED_DATAPOINTS",
+    "CodecError",
     "DatapointSchema",
     "Frame",
     "GizwitsLanSession",
@@ -31,5 +40,6 @@ __all__ = [
     "decode_attrs",
     "encode_attrs",
     "pack",
+    "require_datapoints",
     "unpack",
 ]

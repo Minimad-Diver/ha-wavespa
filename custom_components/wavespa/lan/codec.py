@@ -29,6 +29,25 @@ _SUPPORTED_TYPES = frozenset({"bool", "uint8", "uint16", "uint32"})
 
 _BYTE_WIDTH = {"bool": 1, "uint8": 1, "uint16": 2, "uint32": 4}
 
+# The datapoints this integration's entities read by name. A definition without
+# them decodes perfectly well, but every entity built on it would sit at
+# unknown forever, so a LAN session is refused rather than half-working.
+#
+# The codec itself stays product-agnostic; this is the integration's
+# requirement of a product, not the protocol's. The alert datapoints are
+# deliberately absent - the Alerts sensor tolerates their absence, so a product
+# without them is still worth talking to.
+REQUIRED_DATAPOINTS = frozenset(
+    {
+        "Bubble",
+        "Current_temperature",
+        "Filter",
+        "Heater",
+        "Temperature_setup",
+        "Time_filter",
+    }
+)
+
 
 class CodecError(ValueError):
     """A payload or definition could not be interpreted."""
@@ -137,6 +156,30 @@ class DatapointSchema:
     def writable_names(self) -> tuple[str, ...]:
         """Datapoints that may be written."""
         return tuple(dp.name for dp in self.datapoints if dp.writable)
+
+    def missing(self, names: frozenset[str]) -> tuple[str, ...]:
+        """Return which of `names` this product does not provide, sorted."""
+        return tuple(sorted(names - {dp.name for dp in self.datapoints}))
+
+
+def require_datapoints(
+    schema: DatapointSchema, names: frozenset[str] = REQUIRED_DATAPOINTS
+) -> None:
+    """Raise unless the product provides every datapoint the entities need.
+
+    Called before a LAN session is opened. A definition can be entirely valid
+    and still be useless to us - a different product, or a renamed field - and
+    the failure mode without this check is silent: the codec decodes happily
+    into names nothing looks up, so every entity reports unknown with nothing
+    in the log to say why. Better to refuse the LAN and stay on the cloud.
+    """
+    missing = schema.missing(names)
+    if missing:
+        raise CodecError(
+            f"product '{schema.name or schema.product_key}' has no "
+            f"{', '.join(missing)} datapoint(s); its definition cannot drive "
+            "this integration's entities"
+        )
 
 
 def decode_attrs(schema: DatapointSchema, payload: bytes) -> dict[str, Any]:

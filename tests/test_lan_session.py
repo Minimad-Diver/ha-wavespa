@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 
-from custom_components.wavespa.lan.codec import DatapointSchema
+from custom_components.wavespa.lan.codec import CodecError, DatapointSchema
 from custom_components.wavespa.lan.framing import (
     CMD_LOGIN_RESPONSE,
     CMD_PASSCODE_RESPONSE,
@@ -138,6 +138,39 @@ def make_session(
         **kwargs,
     )
     return session, updates
+
+
+class TestSchemaValidation:
+    """A session is refused unless the product can drive our entities."""
+
+    def test_a_schema_without_required_datapoints_is_refused(self) -> None:
+        """Refusing here keeps the cloud transport running.
+
+        Such a product decodes fine, into names nothing looks up, so a session
+        would connect and hold a slot while every entity sat at unknown.
+        """
+        foreign = DatapointSchema(
+            {
+                "name": "Some_Other_Spa",
+                "entities": [
+                    {
+                        "attrs": [
+                            {
+                                "name": "WaterTemp",
+                                "data_type": "uint8",
+                                "position": {"byte_offset": 0},
+                            }
+                        ]
+                    }
+                ],
+            }
+        )
+
+        with pytest.raises(CodecError, match="Current_temperature"):
+            GizwitsLanSession("192.0.2.10", foreign, lambda _attrs: None)
+
+    def test_the_real_product_is_accepted(self, schema: DatapointSchema) -> None:
+        GizwitsLanSession("192.0.2.10", schema, lambda _attrs: None)
 
 
 class TestHandshake:

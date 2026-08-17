@@ -21,10 +21,12 @@ from typing import Any
 import pytest
 
 from custom_components.wavespa.lan.codec import (
+    REQUIRED_DATAPOINTS,
     CodecError,
     DatapointSchema,
     decode_attrs,
     encode_attrs,
+    require_datapoints,
 )
 
 _FIXTURE = pathlib.Path(__file__).parent / "fixtures" / "datapoint_wave_spa.json"
@@ -206,6 +208,68 @@ class TestSchema:
 
         assert "Placeless" in caplog.text
         assert "byte offset" in caplog.text
+
+
+class TestRequiredDatapoints:
+    """Whether a product's definition can drive this integration's entities."""
+
+    def test_the_real_product_satisfies_them(self, schema: DatapointSchema) -> None:
+        require_datapoints(schema)  # must not raise
+
+    def test_nothing_is_missing_from_the_real_product(
+        self, schema: DatapointSchema
+    ) -> None:
+        assert schema.missing(REQUIRED_DATAPOINTS) == ()
+
+    def test_missing_reports_names_sorted(self, schema: DatapointSchema) -> None:
+        assert schema.missing(frozenset({"Zebra", "Aardvark"})) == (
+            "Aardvark",
+            "Zebra",
+        )
+
+    def test_a_renamed_datapoint_is_refused(self) -> None:
+        """The failure this exists to catch.
+
+        Such a definition decodes perfectly well - into names nothing looks
+        up - so without this check every entity sits at unknown and the log
+        says nothing at all.
+        """
+        schema = DatapointSchema(
+            {
+                "name": "Some_Other_Spa",
+                "entities": [
+                    {
+                        "attrs": [
+                            {
+                                "name": "WaterTemp",
+                                "data_type": "uint8",
+                                "position": {"byte_offset": 0},
+                            }
+                        ]
+                    }
+                ],
+            }
+        )
+
+        with pytest.raises(CodecError, match="Some_Other_Spa"):
+            require_datapoints(schema)
+
+    def test_the_message_names_only_what_is_missing(
+        self, schema: DatapointSchema
+    ) -> None:
+        with pytest.raises(CodecError, match="Nope") as raised:
+            require_datapoints(schema, frozenset({"Heater", "Filter", "Nope"}))
+
+        assert "Heater" not in str(raised.value)
+
+    def test_alerts_are_not_required(self, schema: DatapointSchema) -> None:
+        """The Alerts sensor tolerates their absence, so a product without
+        them is still worth talking to over the LAN."""
+        assert not REQUIRED_DATAPOINTS & {
+            "Overtime_filter",
+            "Superheat",
+            "Undercooling",
+        }
 
 
 class TestDecode:

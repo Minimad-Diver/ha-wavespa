@@ -27,7 +27,7 @@ from collections.abc import Awaitable, Callable
 from logging import getLogger
 from typing import Any
 
-from .codec import DatapointSchema, decode_attrs
+from .codec import DatapointSchema, decode_attrs, require_datapoints
 from .framing import (
     CMD_LOGIN,
     CMD_LOGIN_RESPONSE,
@@ -106,7 +106,13 @@ class GizwitsLanSession:
             connect_callback: called once the session is usable
             disconnect_callback: called when an established session drops
             connector: opens the connection; injectable for tests
+
+        Raises:
+            CodecError: the schema lacks datapoints the entities need, so a
+                session against it could never produce usable state.
         """
+        require_datapoints(schema)
+
         self._host = host
         self._port = port
         self._schema = schema
