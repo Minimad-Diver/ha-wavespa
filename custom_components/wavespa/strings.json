@@ -80,21 +80,22 @@
     "step": {
       "init": {
         "title": "Power assumptions and local access",
-        "description": "The Estimated Power and Estimated Energy sensors are modelled, not measured. Set the power each load actually draws on your spa so the Energy dashboard reflects it.\n\nOptionally, enter your spa's IP address to read its state directly over your local network, so changes show up without waiting on the cloud. Commands are still sent via the cloud. Give the spa a fixed address in your router first, or local control will stop working when the address changes. Leave blank to use the cloud only.",
+        "description": "The Estimated Power and Estimated Energy sensors are modelled, not measured. Set the power each load actually draws on your spa so the Energy dashboard reflects it.\n\n**Local access is optional.** Enter your spa's IP address to read its state directly over your local network, so changes appear without waiting on the cloud. Commands are still sent via the cloud. Give the spa a fixed address in your router first, or local access will stop working when that address changes. Leave the box empty to use the cloud only.\n\n**Don't know the address?** Tick *Search my network for the spa* and press Submit. Home Assistant will look for it and fill the address in for you - nothing else is saved on that pass. The search cannot work if Home Assistant runs in a Docker container with bridge networking, because the broadcast it uses never leaves the container; type the address in by hand instead.",
         "data": {
           "heater_watts": "Heater",
           "bubbles_watts": "Bubbles",
           "filter_watts": "Filter pump",
           "lan_host": "Spa IP address (optional, for faster local updates)",
-          "search_for_spa": "Search my network for the spa"
+          "search_for_spa": "Search my network for the spa, and fill in the address above"
         },
         "data_description": {
-          "search_for_spa": "Tick and save to look for the spa on your network and fill in its address. Nothing is saved on this pass."
+          "lan_host": "Leave empty to use the cloud only.",
+          "search_for_spa": "Tick this and press Submit. Nothing else is saved on that pass - your other changes are kept on the form so you can save them afterwards."
         }
       }
     },
     "error": {
-      "no_spa_found": "No spa answered on your network. Check it is powered on and on the same network as Home Assistant. Some routers block the kind of broadcast this uses, in which case enter the address by hand."
+      "no_spa_found": "No spa answered the search. If Home Assistant runs in a Docker container with bridge networking, the search cannot reach your network at all - enter the spa's address by hand instead. Otherwise, check the spa is powered on and on the same network as Home Assistant; many guest and mesh networks also block the kind of broadcast this uses."
     }
   }
 }
