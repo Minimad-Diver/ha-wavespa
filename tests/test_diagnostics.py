@@ -41,6 +41,7 @@ def _make_entry() -> MagicMock:
         wifi_soft_version="2.0",
         wifi_hard_version="2.1",
         is_online=True,
+        product_key="747be354e00449e799883a966d0c9cbd",
     )
     coordinator = MagicMock()
     coordinator.api.devices = {"did123456": device}
@@ -137,6 +138,14 @@ class TestContent:
 
         diag = await async_get_config_entry_diagnostics(MagicMock(), entry)
         assert diag["coordinator"]["websocket_connected"] is None
+
+    async def test_product_key_is_reported_in_full(self) -> None:
+        """It identifies the model, not the spa, and it is what decides how a
+        status payload is decoded - the most useful field in a report that
+        local control shows wrong values or none."""
+        diag = await _diag()
+
+        assert diag["devices"][0]["product_key"] == ("747be354e00449e799883a966d0c9cbd")
 
     async def test_lan_state_is_reported(self) -> None:
         diag = await _diag()

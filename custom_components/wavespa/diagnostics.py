@@ -32,10 +32,16 @@ TO_REDACT = {
     CONF_UID,
     # Device identifiers, redacted for the same reason api.py masks them
     # before logging: people paste diagnostics into public issues.
+    #
+    # product_key is deliberately NOT here. It identifies the product, not the
+    # unit - every spa of the same model shares it, and Gizwits serves it
+    # unauthenticated - so it gives away nothing about the owner. It is also
+    # the lookup key for the datapoint layout a status payload is decoded
+    # with, which makes it the single most useful field when local control
+    # reports the wrong values or nothing at all.
     "device_id",
     "mac",
     "passcode",
-    "product_key",
     # The spa's address on the user's own network. Not a credential, but it
     # describes their LAN, and the options blob it lives in is dumped whole.
     CONF_LAN_HOST,
@@ -74,6 +80,11 @@ async def async_get_config_entry_diagnostics(
                     else None
                 ),
                 "product_name": device.product_name,
+                # Reported in full - see TO_REDACT. It identifies the model,
+                # not the spa, and it is what decides how a status payload is
+                # decoded, so a "local control shows nothing" report is far
+                # easier to act on with it attached.
+                "product_key": device.product_key,
                 "device_type": device.device_type.value,
                 "protocol_version": device.protocol_version,
                 "is_online": device.is_online,

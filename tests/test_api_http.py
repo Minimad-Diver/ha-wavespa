@@ -330,8 +330,19 @@ class TestSanitizeBindingsResponse:
         result = WavespaApi._sanitize_bindings_response(self._RAW)
 
         device = result["devices"][0]
-        for field in ("did", "mac", "passcode", "product_key"):
+        for field in ("did", "mac", "passcode"):
             assert set(device[field]) == {"*"}, f"{field} was not masked"
+
+    def test_product_key_is_not_masked(self) -> None:
+        """It identifies the model, not the unit.
+
+        Every spa of the same model shares it and Gizwits serves it without
+        authentication, so masking it protected nobody while hiding the one
+        field that says which datapoint layout a spa uses.
+        """
+        result = WavespaApi._sanitize_bindings_response(self._RAW)
+
+        assert result["devices"][0]["product_key"] == "product-key-value"
 
     def test_no_secret_survives(self) -> None:
         import json
@@ -342,7 +353,6 @@ class TestSanitizeBindingsResponse:
             "device-identifier",
             "AABBCCDDEEFF",
             "secret-passcode",
-            "product-key-value",
         ):
             assert secret not in blob
 

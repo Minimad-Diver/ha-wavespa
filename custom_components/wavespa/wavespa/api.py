@@ -515,6 +515,12 @@ class WavespaApi:
 
         People have a habit of simply copying & pasting to online communities without
         considering whether any of that information could be abused.
+
+        product_key is deliberately left intact. It identifies the product
+        rather than the unit - every spa of the same model shares it, and
+        Gizwits serves it without authentication - so masking it protected
+        nobody while hiding the one field that says which datapoint layout a
+        spa uses. did, mac and passcode do identify the unit, and stay masked.
         """
 
         # Do all this in a safe way in case the response isn't as expected
@@ -525,8 +531,6 @@ class WavespaApi:
                 device["did"] = "*" * len(did)
             if (mac := device.get("passcode")) is not None:
                 device["passcode"] = "*" * len(mac)
-            if (mac := device.get("product_key")) is not None:
-                device["product_key"] = "*" * len(mac)
             if (mac := device.get("mac")) is not None:
                 device["mac"] = "*" * len(mac)
 
