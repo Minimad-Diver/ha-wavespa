@@ -3,7 +3,7 @@
   "name": "WaveSpa",
   "codeowners": ["@Minimad-Diver"],
   "config_flow": true,
-  "dependencies": [],
+  "dependencies": ["network"],
   "documentation": "https://github.com/Minimad-Diver/ha-wavespa",
   "integration_type": "device",
   "iot_class": "cloud_push",

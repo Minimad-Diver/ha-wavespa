@@ -14,11 +14,13 @@ from homeassistant.config_entries import (
     ConfigFlowResult,
     OptionsFlow,
 )
+from homeassistant.components import network
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 import voluptuous as vol
 
+from .lan.discovery import async_discover
 from .wavespa.api import (
     WavespaApi,
     WavespaIncorrectPasswordException,
@@ -37,6 +39,7 @@ from .const import (
     CONF_API_ROOT_US,
     CONF_LAN_HOST,
     CONF_PASSWORD,
+    CONF_SEARCH_FOR_SPA,
     CONF_UID,
     CONF_USER_TOKEN,
     CONF_USER_TOKEN_EXPIRY,
@@ -283,23 +286,42 @@ class WavespaOptionsFlow(OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Manage the options."""
-        if user_input is not None:
-            return self.async_create_entry(data=user_input)
-
         options = self.config_entry.options
+
+        if user_input is None:
+            return self._show_form(dict(options), str(options.get(CONF_LAN_HOST, "")))
+
+        # The search box is an action, not a setting: it must never be stored.
+        if user_input.pop(CONF_SEARCH_FOR_SPA, False):
+            discovered = await self._async_discovered_host()
+            return self._show_form(
+                user_input,
+                discovered or str(user_input.get(CONF_LAN_HOST, "")),
+                errors=None if discovered else {"base": "no_spa_found"},
+            )
+
+        return self.async_create_entry(data=user_input)
+
+    def _show_form(
+        self,
+        values: dict[str, Any],
+        suggested_host: str,
+        errors: dict[str, str] | None = None,
+    ) -> ConfigFlowResult:
+        """Render the options form, keeping whatever the user already typed."""
         schema = vol.Schema(
             {
                 vol.Required(
                     CONF_HEATER_WATTS,
-                    default=options.get(CONF_HEATER_WATTS, DEFAULT_HEATER_WATTS),
+                    default=values.get(CONF_HEATER_WATTS, DEFAULT_HEATER_WATTS),
                 ): _WATTS_SELECTOR,
                 vol.Required(
                     CONF_BUBBLES_WATTS,
-                    default=options.get(CONF_BUBBLES_WATTS, DEFAULT_BUBBLES_WATTS),
+                    default=values.get(CONF_BUBBLES_WATTS, DEFAULT_BUBBLES_WATTS),
                 ): _WATTS_SELECTOR,
                 vol.Required(
                     CONF_FILTER_WATTS,
-                    default=options.get(CONF_FILTER_WATTS, DEFAULT_FILTER_WATTS),
+                    default=values.get(CONF_FILTER_WATTS, DEFAULT_FILTER_WATTS),
                 ): _WATTS_SELECTOR,
                 # Empty is the supported way to turn local control back off,
                 # which is why the saved host is a *suggested value* and not
@@ -310,10 +332,45 @@ class WavespaOptionsFlow(OptionsFlow):
                 vol.Optional(
                     CONF_LAN_HOST,
                     default="",
-                    description={"suggested_value": options.get(CONF_LAN_HOST, "")},
+                    description={"suggested_value": suggested_host},
                 ): selector.TextSelector(
                     selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
                 ),
+                # Always presented unticked - ticking it is a one-off request
+                # to go and look, not a preference to remember.
+                vol.Optional(CONF_SEARCH_FOR_SPA, default=False): bool,
             }
         )
-        return self.async_show_form(step_id="init", data_schema=schema)
+        return self.async_show_form(
+            step_id="init", data_schema=schema, errors=errors or {}
+        )
+
+    async def _async_discovered_host(self) -> str:
+        """Return a spa's address found by broadcast, or "" if unclear.
+
+        Best-effort and quiet. Discovery is UDP only, so it costs none of the
+        device's few connection slots and can be repeated freely - but plenty
+        of networks swallow broadcast traffic, and finding nothing is normal
+        rather than an error worth showing anyone.
+
+        Deliberately suggests nothing when several devices answer: this
+        integration attaches one address to one spa, so picking between them
+        would be a guess, and a wrong guess puts one spa's readings on
+        another.
+        """
+        try:
+            broadcasts = await network.async_get_ipv4_broadcast_addresses(self.hass)
+            found = await async_discover([str(address) for address in broadcasts])
+        except Exception as err:  # pylint: disable=broad-except
+            _LOGGER.debug("Could not search the network for a spa: %s", err)
+            return ""
+
+        if len(found) == 1:
+            _LOGGER.debug("Suggesting the spa found at %s", found[0].address)
+            return found[0].address
+
+        _LOGGER.debug(
+            "Not suggesting an address: %d devices answered the broadcast",
+            len(found),
+        )
+        return ""

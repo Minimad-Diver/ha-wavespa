@@ -32,3 +32,9 @@ DEFAULT_FILTER_WATTS = 50
 # local control is opt-in, because it needs a fixed address the user has to
 # arrange (a DHCP reservation) and a wrong one would just log failures.
 CONF_LAN_HOST = "lan_host"
+
+# A transient tick-box on the options form, never stored. Discovery only runs
+# when it is asked for: a broadcast sweep takes seconds, and doing it whenever
+# the form opens would charge that to every user who never wanted local
+# control, along with network traffic they did not ask a settings page for.
+CONF_SEARCH_FOR_SPA = "search_for_spa"

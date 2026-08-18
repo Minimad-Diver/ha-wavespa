@@ -85,9 +85,16 @@
           "heater_watts": "Heater",
           "bubbles_watts": "Bubbles",
           "filter_watts": "Filter pump",
-          "lan_host": "Spa IP address (optional, for faster local updates)"
+          "lan_host": "Spa IP address (optional, for faster local updates)",
+          "search_for_spa": "Search my network for the spa"
+        },
+        "data_description": {
+          "search_for_spa": "Tick and save to look for the spa on your network and fill in its address. Nothing is saved on this pass."
         }
       }
+    },
+    "error": {
+      "no_spa_found": "No spa answered on your network. Check it is powered on and on the same network as Home Assistant. Some routers block the kind of broadcast this uses, in which case enter the address by hand."
     }
   }
 }
