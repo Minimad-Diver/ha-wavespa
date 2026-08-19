@@ -61,6 +61,10 @@ def _make_coordinator(device: WavespaDevice, status: WavespaDeviceStatus):
     coordinator.api.devices = {"test_device": device}
     coordinator.data = WavespaApiResults(devices={"test_device": status})
     coordinator.last_update_success = True
+    # No push transport unless a test says otherwise: a bare
+    # MagicMock would return a truthy stand-in here and make
+    # every entity available regardless of the poll.
+    coordinator.has_live_push = MagicMock(return_value=False)
     coordinator.async_request_refresh = AsyncMock()
     coordinator.async_refresh = AsyncMock()
     return coordinator
@@ -144,6 +148,40 @@ class TestEntityAvailability:
         config_entry = MagicMock()
 
         entity = WavespaEntity(coordinator, config_entry, "test_device")
+        assert entity.available is False
+
+    def test_available_when_a_push_transport_is_live(self):
+        """A failed cloud poll must not blank an entity that is still in touch.
+
+        An internet outage used to make every entity vanish while the
+        integration sat on the same network as the spa, receiving perfectly
+        good state from it over the LAN.
+        """
+        from custom_components.wavespa.entity import WavespaEntity
+
+        device = _make_device(is_online=True)
+        coordinator = _make_coordinator(device, _make_status())
+        coordinator.last_update_success = False
+        coordinator.has_live_push = MagicMock(return_value=True)
+
+        entity = WavespaEntity(coordinator, MagicMock(), "test_device")
+
+        assert entity.available is True
+
+    def test_a_live_push_does_not_resurrect_an_offline_spa(self):
+        """Being in touch is not the same as the spa being on.
+
+        is_online is still honoured: showing cached attributes as live state
+        for a spa that is switched off is worse than showing nothing.
+        """
+        from custom_components.wavespa.entity import WavespaEntity
+
+        device = _make_device(is_online=False)
+        coordinator = _make_coordinator(device, _make_status())
+        coordinator.has_live_push = MagicMock(return_value=True)
+
+        entity = WavespaEntity(coordinator, MagicMock(), "test_device")
+
         assert entity.available is False
 
 

@@ -114,6 +114,57 @@ class TestCoordinatorUpdates:
         assert coordinator.last_lan_update("other") is None
 
 
+class TestLivePush:
+    """Whether a transport is currently connected, for entity availability."""
+
+    def _coordinator(self, hass: HomeAssistant) -> WavespaUpdateCoordinator:
+        entry = MockConfigEntry(
+            domain=DOMAIN, data={CONF_API_ROOT: CONF_API_ROOT_EU}, entry_id="test"
+        )
+        api = MagicMock(spec=WavespaApi)
+        api.devices = {"did": _device()}
+        coordinator = WavespaUpdateCoordinator(hass, entry, api)
+        coordinator.websocket = None
+        coordinator.lan = None
+        return coordinator
+
+    async def test_nothing_connected(self, hass: HomeAssistant) -> None:
+        assert self._coordinator(hass).has_live_push("did") is False
+
+    async def test_a_connected_websocket_counts(self, hass: HomeAssistant) -> None:
+        coordinator = self._coordinator(hass)
+        coordinator.websocket = MagicMock(is_connected=True)
+
+        assert coordinator.has_live_push("did") is True
+
+    async def test_a_disconnected_websocket_does_not(self, hass: HomeAssistant) -> None:
+        coordinator = self._coordinator(hass)
+        coordinator.websocket = MagicMock(is_connected=False)
+
+        assert coordinator.has_live_push("did") is False
+
+    async def test_a_connected_lan_session_counts(self, hass: HomeAssistant) -> None:
+        coordinator = self._coordinator(hass)
+        coordinator.lan = MagicMock(is_connected=True)
+        coordinator.set_lan_device("did")
+
+        assert coordinator.has_live_push("did") is True
+
+    async def test_the_lan_counts_only_for_its_own_spa(
+        self, hass: HomeAssistant
+    ) -> None:
+        """One session speaks for one spa.
+
+        Otherwise a second spa would be reported reachable on the strength of
+        the first one's connection.
+        """
+        coordinator = self._coordinator(hass)
+        coordinator.lan = MagicMock(is_connected=True)
+        coordinator.set_lan_device("did")
+
+        assert coordinator.has_live_push("a-different-spa") is False
+
+
 class TestPollingInterval:
     """Polling is the safety net, so it tracks both push transports."""
 

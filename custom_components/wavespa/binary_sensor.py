@@ -117,8 +117,14 @@ class DeviceConnectivitySensor(WavespaEntity, BinarySensorEntity):
         Deliberately overrides WavespaEntity.available, which reports False for
         an offline spa. This sensor has to stay readable in order to report
         that the spa is offline.
+
+        A live push transport counts the same as a successful poll, for the
+        same reason it does there: otherwise the one entity whose job is to
+        report connectivity would itself go unreadable during a cloud outage.
         """
-        return self.coordinator.last_update_success
+        return self.coordinator.last_update_success or self.coordinator.has_live_push(
+            self.device_id
+        )
 
 
 class DeviceAlertsSensor(WavespaEntity, BinarySensorEntity):

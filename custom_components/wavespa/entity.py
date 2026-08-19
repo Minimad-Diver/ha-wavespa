@@ -93,12 +93,19 @@ class WavespaEntity(CoordinatorEntity[WavespaUpdateCoordinator]):
         attributes are stale, and showing them as live state is worse than
         showing nothing.
 
+        A failed cloud poll on its own is not enough to blank an entity. If a
+        push transport is connected we are still in touch with the spa, and
+        its state is as current as it ever is - a LAN session proves that
+        directly, since it pings every few seconds and the device hangs up if
+        we stop. Without this, an internet outage made every entity vanish
+        while the integration sat on the same network as the spa receiving
+        perfectly good state from it.
+
         The connectivity binary sensor deliberately overrides this - it has to
         stay available in order to report that the spa is offline.
         """
         device = self.wavespa_device
-        return (
-            self.coordinator.last_update_success
-            and device is not None
-            and device.is_online
+        in_touch = self.coordinator.last_update_success or (
+            self.coordinator.has_live_push(self.device_id)
         )
+        return in_touch and device is not None and device.is_online

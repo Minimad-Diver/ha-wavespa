@@ -46,6 +46,9 @@ def _make_coordinator(device: WavespaDevice, attrs: dict[str, Any] | None):
     )
     coordinator.data = WavespaApiResults(devices=devices)
     coordinator.last_update_success = True
+    # No push transport unless a test says otherwise: a bare MagicMock would
+    # return a truthy stand-in here and make every entity available.
+    coordinator.has_live_push = MagicMock(return_value=False)
     coordinator.async_request_refresh = AsyncMock()
     return coordinator
 

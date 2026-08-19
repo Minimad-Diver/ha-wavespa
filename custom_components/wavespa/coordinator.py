@@ -251,6 +251,28 @@ class WavespaUpdateCoordinator(DataUpdateCoordinator[WavespaApiResults]):
         self.api.merge_device_attrs(device_id, attrs)
         self.async_set_updated_data(self.api.cached_results())
 
+    def has_live_push(self, device_id: str) -> bool:
+        """Whether a push transport serving this device is currently connected.
+
+        Used for entity availability. A connected transport means we are in
+        touch with the spa right now, which is at least as good evidence as a
+        successful cloud poll - a LAN session proves it directly, since it
+        pings every few seconds and the device drops the connection if we
+        stop.
+
+        The WebSocket is account-wide, so it counts for every device. The LAN
+        session speaks for exactly one spa, so it counts only for that one -
+        otherwise a second spa would be reported as reachable on the strength
+        of the first one's connection.
+        """
+        if self.websocket is not None and self.websocket.is_connected:
+            return True
+        return (
+            self.lan is not None
+            and self.lan.is_connected
+            and device_id == self._lan_device_id
+        )
+
     def last_lan_update(self, device_id: str) -> float | None:
         """Return when the LAN last delivered a status for this device."""
         if device_id != self._lan_device_id:
