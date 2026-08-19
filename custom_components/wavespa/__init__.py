@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta
 from logging import getLogger
 
@@ -71,6 +72,14 @@ def _async_remove_obsolete_entities(
         registry.async_remove(registry_entry.entity_id)
 
 
+# How long to wait between attempts at the product's datapoint definition.
+# It is fetched from the cloud, so the usual reason for failing is that the
+# network is not ready yet. Escalating, then holding at fifteen minutes for as
+# long as the entry is loaded: one request a quarter of an hour costs nothing,
+# and giving up entirely would put us back to needing a manual reload.
+_DEFINITION_RETRY_DELAYS = (30, 60, 300, 900, 900, 900, 900, 900)
+
+
 _PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
     Platform.CLIMATE,
@@ -88,7 +97,7 @@ async def _async_setup_lan(
     """Start a local-network session if one is configured and possible.
 
     Opt-in and best-effort throughout: every way this can fail leaves the
-    cloud transport running and logs why, because local control is an
+    cloud transport running and logs why, because local access is an
     enhancement and losing it must never cost the user their spa entities.
 
     Confirmed against real hardware that the LAN announces state changes
@@ -97,17 +106,17 @@ async def _async_setup_lan(
     """
     host = str(entry.options.get(CONF_LAN_HOST) or "").strip()
     if not host:
-        _LOGGER.debug("No LAN host configured, local control is off")
+        _LOGGER.debug("No LAN host configured, local access is off")
         return
 
     if len(api.devices) != 1:
         # A single configured address cannot be attributed to one of several
         # spas, and guessing would show one spa's readings on another - a far
-        # worse outcome than simply not offering local control. Multi-spa
+        # worse outcome than simply not offering local access. Multi-spa
         # support needs discovery, which can match a device by its DID.
         _LOGGER.warning(
             "LAN host is configured but the account has %d devices; local "
-            "control supports one and has been left off",
+            "access supports one and has been left off",
             len(api.devices),
         )
         return
@@ -117,7 +126,7 @@ async def _async_setup_lan(
     if not device.product_key:
         _LOGGER.warning(
             "No product_key for device %s, so its datapoint layout cannot be "
-            "fetched; local control is off",
+            "fetched; local access is off",
             device_id,
         )
         return
@@ -138,38 +147,70 @@ async def _async_setup_lan(
                 return spa.address
         return None
 
-    try:
-        definition = await api.get_datapoint_definition(device.product_key)
-        schema = DatapointSchema(definition)
-        session = GizwitsLanSession(
-            host,
-            schema,
-            coordinator.handle_lan_update,
-            connect_callback=coordinator.set_lan_active,
-            disconnect_callback=coordinator.handle_lan_disconnect,
-            address_resolver=resolve_address,
-        )
-    except CodecError as err:
-        # The product's definition cannot drive our entities - a different
-        # model, or a renamed datapoint. Permanent, so say so plainly.
-        _LOGGER.warning("Local control is not available for this spa: %s", err)
-        return
-    except Exception as err:  # pylint: disable=broad-except
-        _LOGGER.warning("Could not set up local control, staying on the cloud: %s", err)
-        return
+    async def run_lan() -> None:
+        """Fetch the datapoint definition, then serve the session with it.
 
-    coordinator.set_lan_device(device_id)
-    coordinator.lan = session
+        The fetch is retried rather than attempted once at setup. A transient
+        failure - Home Assistant starting before the network is ready, a brief
+        API outage - used to switch local access off for the entire life of the
+        config entry, recoverable only by a reload the user had no reason to
+        think of, because the integration carries on over the cloud and
+        nothing looks wrong.
+
+        Deliberately not ConfigEntryNotReady: that would retry the whole entry
+        and take the cloud transport down with it, over a fetch that only
+        local access needs.
+        """
+        for attempt, delay in enumerate(_DEFINITION_RETRY_DELAYS, start=1):
+            try:
+                definition = await api.get_datapoint_definition(device.product_key)
+                schema = DatapointSchema(definition)
+                session = GizwitsLanSession(
+                    host,
+                    schema,
+                    coordinator.handle_lan_update,
+                    connect_callback=coordinator.set_lan_active,
+                    disconnect_callback=coordinator.handle_lan_disconnect,
+                    address_resolver=resolve_address,
+                )
+            except CodecError as err:
+                # The product's definition cannot drive our entities - a
+                # different model, or a renamed datapoint. Permanent, so
+                # retrying would only get the same answer again.
+                _LOGGER.warning("Local access is not available for this spa: %s", err)
+                return
+            except Exception as err:  # pylint: disable=broad-except
+                _LOGGER.warning(
+                    "Could not set up local access (attempt %d): %s. Retrying "
+                    "in %d seconds; the cloud transport is unaffected",
+                    attempt,
+                    err,
+                    delay,
+                )
+                await asyncio.sleep(delay)
+                continue
+
+            coordinator.set_lan_device(device_id)
+            coordinator.lan = session
+            _LOGGER.debug("LAN session to %s starting for device %s", host, device_id)
+            await session.async_run()
+            return
+
+        _LOGGER.warning(
+            "Gave up setting up local access for %s after %d attempts; reload "
+            "the integration to try again",
+            host,
+            len(_DEFINITION_RETRY_DELAYS),
+        )
 
     # Tracked, so HA cancels it on unload. An untracked task would keep
     # reconnecting after a reload and hold one of the spa's few connection
     # slots for a session nothing is listening to.
     entry.async_create_background_task(
         hass,
-        session.async_run(),
+        run_lan(),
         f"{DOMAIN}-{entry.entry_id}-lan",
     )
-    _LOGGER.debug("LAN session to %s started for device %s", host, device_id)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: WavespaConfigEntry) -> bool:

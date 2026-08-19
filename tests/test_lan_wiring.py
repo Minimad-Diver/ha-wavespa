@@ -135,6 +135,7 @@ async def _setup(
     session: Any = None,
     definition: Any = None,
     real_session_class: bool = False,
+    fetch: Any = None,
 ) -> Any:
     """Set the entry up with the cloud stubbed out, returning the session mock.
 
@@ -150,6 +151,8 @@ async def _setup(
         return self.cached_results()
 
     async def get_definition(self: WavespaApi, product_key: str) -> Any:
+        if fetch is not None:
+            return fetch(product_key)
         if isinstance(definition, Exception):
             raise definition
         return _DEFINITION if definition is None else definition
@@ -259,9 +262,49 @@ class TestSetupRefusals:
 
         lan_cls.assert_not_called()
         assert entry.runtime_data.lan is None
-        assert "staying on the cloud" in caplog.text
         # The cloud transport is still up, which is the whole point
         assert entry.runtime_data.api.devices
+
+    async def test_a_failed_definition_fetch_is_retried(
+        self, hass: HomeAssistant, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A transient failure must not disable local access until a reload.
+
+        Home Assistant starting before the network is ready used to switch
+        local access off for the whole life of the config entry, recoverable
+        only by a reload the user had no reason to think of - the integration
+        carries on over the cloud, so nothing looks wrong.
+        """
+        entry = _entry(hass, **{CONF_LAN_HOST: _HOST})
+
+        await _setup(
+            hass, entry, {"did": _device()}, definition=RuntimeError("no route")
+        )
+
+        assert "Retrying" in caplog.text
+
+    async def test_a_definition_fetch_that_recovers_starts_the_session(
+        self, hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The point of retrying: local access comes up on its own."""
+        monkeypatch.setattr(
+            "custom_components.wavespa._DEFINITION_RETRY_DELAYS", (0, 0, 0)
+        )
+        entry = _entry(hass, **{CONF_LAN_HOST: _HOST})
+        session = _FakeSession()
+        attempts: list[int] = []
+
+        def flaky(_product_key: str) -> Any:
+            attempts.append(1)
+            if len(attempts) < 3:
+                raise RuntimeError("network not ready")
+            return _DEFINITION
+
+        await _setup(hass, entry, {"did": _device()}, session=session, fetch=flaky)
+
+        assert len(attempts) == 3
+        assert entry.runtime_data.lan is session
+        assert session.started
 
     async def test_an_incompatible_product_is_refused(
         self, hass: HomeAssistant, caplog: pytest.LogCaptureFixture
