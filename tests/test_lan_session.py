@@ -18,6 +18,8 @@ import pytest
 from custom_components.wavespa.lan.codec import CodecError, DatapointSchema
 from custom_components.wavespa.lan.framing import (
     CMD_LOGIN_RESPONSE,
+    CMD_MODULE_INFO,
+    CMD_MODULE_INFO_RESPONSE,
     CMD_PASSCODE_RESPONSE,
     CMD_PING,
     CMD_STATUS,
@@ -28,6 +30,8 @@ from custom_components.wavespa.lan.framing import (
 )
 from custom_components.wavespa.lan.session import (
     GizwitsLanSession,
+    ModuleInfo,
+    parse_module_info,
     LanSessionError,
     LoginRefused,
 )
@@ -38,6 +42,18 @@ PASSCODE = b"JDBHEFKJYK"
 
 # The live payload a real spa returned: p0 action byte then nine datapoints.
 STATUS_PAYLOAD = bytes([0x04]) + bytes.fromhex("05180000001a001600")
+
+# A 0x0014 module info reply, laid out as a real spa sends one: 84 bytes,
+# with a two-byte length before the product key. Identifiers are synthetic.
+MODULE_INFO_PAYLOAD = (
+    b"00"
+    + b"ESP826"
+    + b"0402003A"
+    + b"0" * 24
+    + bytes(10)
+    + (32).to_bytes(2, "big")
+    + b"7" * 32
+)
 
 
 @pytest.fixture(name="schema")
@@ -82,6 +98,8 @@ class FakeDevice:
         answer_status: bool = True,
         passcode: bytes = PASSCODE,
         status_payload: bytes = STATUS_PAYLOAD,
+        answer_module_info: bool = True,
+        module_info_payload: bytes = MODULE_INFO_PAYLOAD,
     ) -> None:
         self.reader = asyncio.StreamReader()
         self.writer = FakeWriter(self)
@@ -89,6 +107,9 @@ class FakeDevice:
         self.answer_status = answer_status
         self.passcode = passcode
         self.status_payload = status_payload
+        self.answer_module_info = answer_module_info
+        self.module_info_payload = module_info_payload
+        self.module_info_requests = 0
         self.pings_received = 0
         self.status_requests = 0
         self.connections = 0
@@ -111,6 +132,10 @@ class FakeDevice:
                     continue
                 if self.answer_status:
                     self._reply(CMD_STATUS_RESPONSE, self.status_payload)
+            elif frame.cmd == CMD_MODULE_INFO:
+                self.module_info_requests += 1
+                if self.answer_module_info:
+                    self._reply(CMD_MODULE_INFO_RESPONSE, self.module_info_payload)
             elif frame.cmd == CMD_PING:
                 self.pings_received += 1
                 self._reply(0x0016)
@@ -128,6 +153,22 @@ class FakeDevice:
     async def connector(self, host: str, port: int) -> tuple[asyncio.StreamReader, Any]:
         self.connections += 1
         return self.reader, self.writer
+
+
+async def until(predicate: Any, tries: int = 200) -> bool:
+    """Yield to the loop until predicate() holds, or give up.
+
+    Tests here used to sleep for a fixed period and assume that was enough
+    turns of the event loop. It was, until connect() grew a second round trip
+    and the assumption quietly stopped holding - and because the harness fast-
+    forwards time, sleeping longer would not have helped. Waiting on the
+    condition is both faster and honest about what is being waited for.
+    """
+    for _ in range(tries):
+        if predicate():
+            return True
+        await asyncio.sleep(0)
+    return False
 
 
 def make_session(
@@ -281,6 +322,79 @@ class TestHandshake:
         await session.connect()
 
         assert device.writer.commands_sent().count(0x0006) == 1
+        await session.disconnect()
+
+
+class TestModuleInfo:
+    """What the wifi module says about itself.
+
+    Worth having because discovery cannot run under containerised Home
+    Assistant, so this is the only route to the hardware id on those installs.
+    """
+
+    def test_a_real_payload_shape_parses(self) -> None:
+        info = parse_module_info(MODULE_INFO_PAYLOAD)
+
+        assert info == ModuleInfo(
+            module="ESP826",
+            hardware_id="0402003A",
+            product_key="7" * 32,
+        )
+
+    def test_a_short_payload_is_rejected(self) -> None:
+        assert parse_module_info(bytes(20)) is None
+
+    def test_a_missing_key_is_rejected(self) -> None:
+        """A length that overstates the bytes present must not be trusted."""
+        payload = MODULE_INFO_PAYLOAD[:50] + (99).to_bytes(2, "big") + b"short"
+        assert parse_module_info(payload) is None
+
+    def test_non_ascii_is_rejected(self) -> None:
+        payload = b"00" + bytes([0xFF]) * 6 + MODULE_INFO_PAYLOAD[8:]
+        assert parse_module_info(payload) is None
+
+    async def test_it_is_read_on_connect(self, schema: DatapointSchema) -> None:
+        device = FakeDevice()
+        session, _ = make_session(schema, device)
+
+        await session.connect()
+
+        assert session.module_info is not None
+        assert session.module_info.hardware_id == "0402003A"
+        await session.disconnect()
+
+    async def test_a_module_that_will_not_answer_costs_nothing(
+        self, schema: DatapointSchema, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Nothing depends on it, so it must not cost us the session."""
+        monkeypatch.setattr(
+            "custom_components.wavespa.lan.session._REPLY_TIMEOUT", 0.05
+        )
+        device = FakeDevice(answer_module_info=False)
+        session, _ = make_session(schema, device)
+
+        await session.connect()
+
+        assert session.is_connected is True
+        assert session.module_info is None
+        await session.disconnect()
+
+    async def test_it_is_not_asked_for_again_once_known(
+        self, schema: DatapointSchema
+    ) -> None:
+        """The module cannot change what it reports, so a reconnect should not
+        keep asking - the round trip would be pure waste on every retry."""
+        device = FakeDevice()
+        session, _ = make_session(schema, device)
+        session.module_info = ModuleInfo(
+            module="ESP826", hardware_id="0402003A", product_key="already-known"
+        )
+
+        await session.connect()
+
+        assert device.module_info_requests == 0
+        assert session.module_info is not None
+        assert session.module_info.product_key == "already-known"
         await session.disconnect()
 
 
@@ -799,8 +913,14 @@ class TestBackoff:
         session._reconnect_count = 5
 
         task = asyncio.create_task(session.async_run())
-        await asyncio.sleep(0.05)
-        assert session._reconnect_count == 0
+
+        # Waits on the reset itself rather than on is_connected, which turns
+        # true partway through connect() while the priming round trips are
+        # still in flight - and the supervisor only clears the count once
+        # connect() has fully returned.
+        assert await until(lambda: session._reconnect_count == 0), (
+            "a successful connect did not reset the backoff"
+        )
 
         await session.disconnect()
         async with asyncio.timeout(2):

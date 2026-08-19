@@ -17,6 +17,7 @@ from custom_components.wavespa.const import (
 from custom_components.wavespa.diagnostics import (
     async_get_config_entry_diagnostics,
 )
+from custom_components.wavespa.lan.session import ModuleInfo
 from custom_components.wavespa.wavespa.api import WavespaApiResults
 from custom_components.wavespa.wavespa.model import WavespaDevice, WavespaDeviceStatus
 
@@ -52,6 +53,9 @@ def _make_entry() -> MagicMock:
     coordinator.websocket.is_connected = True
     coordinator.last_websocket_update = MagicMock(return_value=None)
     coordinator.lan.is_connected = True
+    coordinator.lan.module_info = ModuleInfo(
+        module="ESP826", hardware_id="0402003A", product_key="pk-value"
+    )
     coordinator.last_lan_update = MagicMock(return_value=None)
 
     entry = MagicMock()
@@ -159,6 +163,34 @@ class TestContent:
 
         diag = await async_get_config_entry_diagnostics(MagicMock(), entry)
         assert diag["coordinator"]["lan_connected"] is None
+
+    async def test_module_info_is_reported(self) -> None:
+        """The only route to the hardware id when discovery cannot run, which
+        is every containerised Home Assistant."""
+        diag = await _diag()
+
+        assert diag["coordinator"]["lan_module"] == {
+            "module": "ESP826",
+            "hardware_id": "0402003A",
+            "product_key": "pk-value",
+        }
+
+    async def test_module_info_absent_when_not_read(self) -> None:
+        """It is best-effort, so the dump must cope with never having it."""
+        entry = _make_entry()
+        entry.runtime_data.lan.module_info = None
+
+        diag = await async_get_config_entry_diagnostics(MagicMock(), entry)
+
+        assert diag["coordinator"]["lan_module"] is None
+
+    async def test_module_info_absent_without_a_session(self) -> None:
+        entry = _make_entry()
+        entry.runtime_data.lan = None
+
+        diag = await async_get_config_entry_diagnostics(MagicMock(), entry)
+
+        assert diag["coordinator"]["lan_module"] is None
 
     async def test_the_lan_host_is_redacted(self) -> None:
         """Not a credential, but it describes the user's own network and the

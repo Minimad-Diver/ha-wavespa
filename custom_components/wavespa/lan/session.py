@@ -24,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from logging import getLogger
 from typing import Any
 
@@ -31,6 +32,8 @@ from .codec import CodecError, DatapointSchema, decode_attrs, require_datapoints
 from .framing import (
     CMD_LOGIN,
     CMD_LOGIN_RESPONSE,
+    CMD_MODULE_INFO,
+    CMD_MODULE_INFO_RESPONSE,
     CMD_PASSCODE,
     CMD_PASSCODE_RESPONSE,
     CMD_PING,
@@ -93,6 +96,62 @@ async def _open_connection(
     return await asyncio.open_connection(host, port)
 
 
+@dataclass(frozen=True)
+class ModuleInfo:
+    """What the wifi module reports about itself, from a 0x0014 reply.
+
+    Only the fields that could be named with confidence. The reply also
+    carries a 24-character mostly-zero field whose meaning is unknown, and it
+    notably does NOT carry the GAgent version - that appears in the discovery
+    broadcast reply instead.
+
+    Worth having because discovery cannot run at all when Home Assistant is
+    containerised with bridge networking, so for those installs this is the
+    only way to learn the hardware id.
+    """
+
+    module: str
+    hardware_id: str
+    product_key: str
+
+
+def parse_module_info(payload: bytes) -> ModuleInfo | None:
+    """Read a 0x0014 payload, or None if it is not the shape we know.
+
+    Observed against a real Wave Spa Garda, 84 bytes:
+
+        0-1    "00"
+        2-7    module family, e.g. "ESP826"
+        8-15   hardware id, identical to the one discovery reports
+        16-39  24 characters, mostly zeros, meaning unknown
+        40-49  padding
+        50-51  a two-byte length, 32
+        52-83  the product key
+
+    The offsets are not guesswork: the hardware id and product key parsed out
+    of them match the values discovery and the cloud report independently.
+    """
+    if len(payload) < 52:
+        _LOGGER.debug("Module info payload is %d bytes, too short", len(payload))
+        return None
+
+    length = int.from_bytes(payload[50:52], "big")
+    key = payload[52 : 52 + length]
+    if len(key) != length:
+        _LOGGER.debug("Module info payload claims a %d-byte key it lacks", length)
+        return None
+
+    try:
+        return ModuleInfo(
+            module=payload[2:8].decode("ascii").strip("\x00"),
+            hardware_id=payload[8:16].decode("ascii").strip("\x00"),
+            product_key=key.decode("ascii"),
+        )
+    except UnicodeDecodeError:
+        _LOGGER.debug("Module info payload held non-ascii identifiers")
+        return None
+
+
 class GizwitsLanSession:
     """Keeps one spa's state current over the LAN."""
 
@@ -144,6 +203,11 @@ class GizwitsLanSession:
         self._close_event = asyncio.Event()
         self._reconnect_count = 0
         self._connected = False
+
+        # Filled on the first successful connection. The module cannot
+        # change what it reports, so it is asked once rather than per
+        # connection.
+        self.module_info: ModuleInfo | None = None
 
         # Requests awaiting a reply, keyed by the command they expect back.
         self._waiters: dict[int, asyncio.Future[Frame]] = {}
@@ -243,6 +307,15 @@ class GizwitsLanSession:
         # Prime the cache so entities have state without waiting for a push.
         await self.request_status()
 
+        # Best-effort and once only. It is useful for bug reports but nothing
+        # depends on it, so a module that will not answer must not cost us the
+        # session we just established.
+        if self.module_info is None:
+            try:
+                self.module_info = await self.request_module_info()
+            except Exception as err:  # pylint: disable=broad-except
+                _LOGGER.debug("Could not read module info from %s: %s", self._host, err)
+
     async def disconnect(self) -> None:
         """Stop the supervisor and close the connection.
 
@@ -262,6 +335,16 @@ class GizwitsLanSession:
         """
         frame = await self._request(CMD_STATUS, CMD_STATUS_RESPONSE, bytes([P0_READ]))
         return self._handle_status(frame)
+
+    async def request_module_info(self) -> ModuleInfo | None:
+        """Ask the wifi module to describe itself.
+
+        Unlike a status request this needs no p0 action byte - it is a module
+        command rather than a datapoint one, and the device answers a bare
+        request.
+        """
+        frame = await self._request(CMD_MODULE_INFO, CMD_MODULE_INFO_RESPONSE)
+        return parse_module_info(frame.payload)
 
     async def _serve(self) -> None:
         """Wait for the connection to end, surfacing why it did."""

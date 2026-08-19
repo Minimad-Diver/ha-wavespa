@@ -127,6 +127,20 @@ async def async_get_config_entry_diagnostics(
                     if coordinator.lan is not None
                     else None
                 ),
+                # What the wifi module says about itself, read over the LAN.
+                # Worth reporting because discovery cannot run at all under
+                # containerised Home Assistant, so for those installs this is
+                # the only way the hardware id ever becomes visible.
+                "lan_module": (
+                    {
+                        "module": coordinator.lan.module_info.module,
+                        "hardware_id": coordinator.lan.module_info.hardware_id,
+                        "product_key": coordinator.lan.module_info.product_key,
+                    }
+                    if coordinator.lan is not None
+                    and coordinator.lan.module_info is not None
+                    else None
+                ),
             },
             "devices": devices,
         },
