@@ -66,6 +66,18 @@ Connector = Callable[
     [str, int], Awaitable[tuple[asyncio.StreamReader, asyncio.StreamWriter]]
 ]
 
+# Looks up where the spa is now, returning an address or None if it cannot
+# say. Called only after repeated connection failures, so a spa whose DHCP
+# lease moved is found again instead of the session retrying a dead address
+# forever. Kept as a plain callable so this module needs to know nothing about
+# discovery, and nothing about Home Assistant.
+AddressResolver = Callable[[], Awaitable[str | None]]
+
+# How many failed attempts before asking where the spa went. Not the first
+# failure: a spa is briefly unreachable for all sorts of ordinary reasons -
+# a reboot, a wifi blip - and re-resolving on each of those would be noise.
+_REDISCOVER_AFTER_FAILURES = 3
+
 
 class LanSessionError(Exception):
     """The session could not be established or was lost."""
@@ -94,6 +106,7 @@ class GizwitsLanSession:
         connect_callback: Callable[[], None] | None = None,
         disconnect_callback: Callable[[], None] | None = None,
         connector: Connector | None = None,
+        address_resolver: AddressResolver | None = None,
     ) -> None:
         """Initialize the session.
 
@@ -106,6 +119,8 @@ class GizwitsLanSession:
             connect_callback: called once the session is usable
             disconnect_callback: called when an established session drops
             connector: opens the connection; injectable for tests
+            address_resolver: asked where the spa is after repeated failures,
+                so a changed address is picked up rather than retried forever
 
         Raises:
             CodecError: the schema lacks datapoints the entities need, so a
@@ -120,6 +135,7 @@ class GizwitsLanSession:
         self._connect_callback = connect_callback
         self._disconnect_callback = disconnect_callback
         self._connector: Connector = connector or _open_connection
+        self._address_resolver = address_resolver
 
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
@@ -184,6 +200,8 @@ class GizwitsLanSession:
                 break
             if was_connected:
                 self._notify(self._disconnect_callback, "disconnect")
+
+            await self._maybe_rediscover()
             await self._wait_before_retry()
 
         _LOGGER.debug("LAN supervisor for %s stopped", self._host)
@@ -481,6 +499,62 @@ class GizwitsLanSession:
         ]
         self._reconnect_count += 1
         return delay
+
+    async def _maybe_rediscover(self) -> None:
+        """After repeated failures, ask where the spa went.
+
+        A spa whose DHCP lease moves would otherwise be retried at its old
+        address until someone noticed and edited the setting by hand - and the
+        symptom is quiet, because the integration carries on over the cloud.
+
+        Safe to do from here: looking the spa up is a UDP broadcast, which
+        costs none of the device's small pool of connection slots, unlike the
+        TCP attempts that got us here.
+
+        Runs before every retry once the threshold is passed, not just once at
+        it. A spa can be unreachable for an hour and come back somewhere else,
+        and a single lookup on the way down would have been spent long before
+        that. By then the backoff has stretched to a minute, so this is at
+        most one broadcast a minute while the spa is missing.
+
+        The new address is used for this run only and not written back to the
+        configuration. Persisting it would reload the config entry, and a
+        reload tears down and reopens the session - which is exactly the
+        pattern that exhausts those connection slots if it ever happened
+        repeatedly. Recovery runs again by itself after a restart, so the cost
+        of not persisting is a few failed attempts, not a broken feature.
+        """
+        if self._address_resolver is None:
+            return
+        if self._reconnect_count < _REDISCOVER_AFTER_FAILURES:
+            return
+
+        _LOGGER.debug(
+            "%d failed attempts to reach %s; looking for it on the network",
+            self._reconnect_count,
+            self._host,
+        )
+        try:
+            address = await self._address_resolver()
+        except Exception as err:  # pylint: disable=broad-except
+            _LOGGER.debug("Could not look up the spa's address: %s", err)
+            return
+
+        if address is None:
+            _LOGGER.debug("The spa did not answer; keeping %s", self._host)
+            return
+        if address == self._host:
+            _LOGGER.debug("The spa is still at %s", self._host)
+            return
+
+        _LOGGER.info(
+            "The spa has moved from %s to %s; using the new address. Update "
+            "the address in the integration options to avoid this delay after "
+            "a restart",
+            self._host,
+            address,
+        )
+        self._host = address
 
     async def _wait_before_retry(self) -> None:
         """Wait out the backoff, returning early on shutdown."""

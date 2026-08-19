@@ -522,6 +522,128 @@ class TestSupervisor:
         async with asyncio.timeout(2):
             await task
 
+    async def test_a_moved_spa_is_found_again(
+        self, schema: DatapointSchema, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A DHCP lease that moves must not strand local access forever.
+
+        Without this the session retries the old address until someone
+        notices and edits the setting by hand - and the symptom is quiet,
+        because the integration carries on over the cloud throughout.
+        """
+        monkeypatch.setattr(
+            "custom_components.wavespa.lan.session._RECONNECT_DELAYS", (0.01,)
+        )
+        device = FakeDevice()
+        asked: list[int] = []
+
+        async def resolver() -> str | None:
+            asked.append(1)
+            return "192.0.2.99"
+
+        session, _ = make_session(schema, device)
+        session._address_resolver = resolver
+
+        # Nothing answers at the original address.
+        async def refuse(host: str, port: int) -> Any:
+            if session._host == "192.0.2.99":
+                return await device.connector(host, port)
+            raise OSError("no route to host")
+
+        session._connector = refuse
+
+        task = asyncio.create_task(session.async_run())
+        await asyncio.sleep(0.3)
+
+        assert asked, "never asked where the spa went"
+        assert session._host == "192.0.2.99"
+        assert session.is_connected is True
+
+        await session.disconnect()
+        async with asyncio.timeout(2):
+            await task
+
+    async def test_the_spa_is_not_looked_for_too_eagerly(
+        self, schema: DatapointSchema
+    ) -> None:
+        """A brief blip is not a moved address.
+
+        A spa is unreachable for all sorts of ordinary reasons - a reboot, a
+        wifi blip - and broadcasting on every one of those would be noise.
+        Asserted on the counter rather than on elapsed time, because a
+        timing-based version of this passes or fails on how fast the machine
+        happens to be.
+        """
+        from custom_components.wavespa.lan.session import (
+            _REDISCOVER_AFTER_FAILURES,
+        )
+
+        asked: list[int] = []
+
+        async def resolver() -> str | None:
+            asked.append(1)
+            return "192.0.2.99"
+
+        session, _ = make_session(schema, FakeDevice())
+        session._address_resolver = resolver
+
+        for count in range(_REDISCOVER_AFTER_FAILURES):
+            session._reconnect_count = count
+            await session._maybe_rediscover()
+
+        assert not asked, "asked before the threshold"
+        assert session._host == "192.0.2.10"
+
+        # And once past it, it does ask.
+        session._reconnect_count = _REDISCOVER_AFTER_FAILURES
+        await session._maybe_rediscover()
+
+        assert asked
+        assert session._host == "192.0.2.99"
+
+    async def test_an_unchanged_address_is_left_alone(
+        self, schema: DatapointSchema
+    ) -> None:
+        """Finding the spa where it already is must not be reported as a move."""
+        device = FakeDevice()
+        session, _ = make_session(schema, device)
+
+        async def resolver() -> str | None:
+            return "192.0.2.10"
+
+        session._address_resolver = resolver
+        session._reconnect_count = 5
+
+        await session._maybe_rediscover()
+
+        assert session._host == "192.0.2.10"
+
+    async def test_a_failing_lookup_is_survivable(
+        self, schema: DatapointSchema
+    ) -> None:
+        """Discovery is best-effort; a broken network must not kill the loop."""
+        device = FakeDevice()
+        session, _ = make_session(schema, device)
+
+        async def resolver() -> str | None:
+            raise OSError("network unreachable")
+
+        session._address_resolver = resolver
+        session._reconnect_count = 5
+
+        await session._maybe_rediscover()  # must not raise
+
+        assert session._host == "192.0.2.10"
+
+    async def test_no_resolver_means_no_lookup(self, schema: DatapointSchema) -> None:
+        """The session works without one; it is an optional enhancement."""
+        session, _ = make_session(schema, FakeDevice())
+        session._reconnect_count = 99
+
+        await session._maybe_rediscover()
+
+        assert session._host == "192.0.2.10"
+
     async def test_teardown_wakes_pending_requests(
         self, schema: DatapointSchema
     ) -> None:

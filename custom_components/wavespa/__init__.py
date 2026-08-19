@@ -11,7 +11,10 @@ from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
+from homeassistant.components import network
+
 from .lan import CodecError, DatapointSchema, GizwitsLanSession
+from .lan.discovery import async_discover
 from .wavespa.api import WavespaApi, WavespaAuthException
 from .wavespa.websocket import GizwitsWebSocket
 from .const import (
@@ -119,6 +122,22 @@ async def _async_setup_lan(
         )
         return
 
+    async def resolve_address() -> str | None:
+        """Find this spa on the network again after it stops answering.
+
+        Matching is by DID, which the discovery reply carries and which is the
+        same identifier the cloud uses as `device_id` - verified against a real
+        account rather than assumed. That is what makes this safe: the address
+        is only adopted if the device answering to it is demonstrably the same
+        spa, never merely the only one that replied.
+        """
+        broadcasts = await network.async_get_ipv4_broadcast_addresses(hass)
+        found = await async_discover([str(address) for address in broadcasts])
+        for spa in found:
+            if spa.did == device_id:
+                return spa.address
+        return None
+
     try:
         definition = await api.get_datapoint_definition(device.product_key)
         schema = DatapointSchema(definition)
@@ -128,6 +147,7 @@ async def _async_setup_lan(
             coordinator.handle_lan_update,
             connect_callback=coordinator.set_lan_active,
             disconnect_callback=coordinator.handle_lan_disconnect,
+            address_resolver=resolve_address,
         )
     except CodecError as err:
         # The product's definition cannot drive our entities - a different
