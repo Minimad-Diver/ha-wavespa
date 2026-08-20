@@ -10,5 +10,5 @@
   "issue_tracker": "https://github.com/Minimad-Diver/ha-wavespa/issues",
   "loggers": ["websockets"],
   "requirements": ["websockets==17.0.1"],
-  "version": "2.2.0b3"
+  "version": "2.2.0b4"
 }
