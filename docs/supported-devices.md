@@ -62,9 +62,9 @@ Three things worth knowing about this sample:
   means heating is _enabled_, not that the element is drawing power — which is
   why the integration compares the two temperatures rather than trusting it.
 - `Time_filter` counts **up** as the filter is used, towards a maximum of
-  10200. The unit is minutes, measured against a live spa at one per 65
-  seconds of filtering, so a full filter life is about 170 hours. The Filter
-  life sensor reports the inverse as a percentage.
+  10200 minutes. Measured against a live spa at one minute per 65 seconds of
+  filtering, so a full filter life is about 170 hours. The Filter life sensor
+  reports the inverse as a percentage.
 - No `E32` or any other `E`-code is reported, and none of the `system_err*`,
   `earth` or `error` attributes appear at all. Those are Bestway heritage and
   this hardware has never been observed to send them, which is why the Alerts
