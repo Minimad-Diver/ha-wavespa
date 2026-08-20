@@ -14,7 +14,8 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 from typing import Any
 
-from homeassistant.const import EntityCategory
+from homeassistant.components.sensor import SensorDeviceClass
+from homeassistant.const import EntityCategory, UnitOfTime
 from homeassistant.helpers.entity import Entity
 
 from custom_components.wavespa.wavespa.model import (
@@ -27,6 +28,7 @@ from custom_components.wavespa.sensor import (
     ESTIMATED_FILTER_WATTS,
     ESTIMATED_HEATER_WATTS,
     ActiveAlertSensor,
+    FilterTimeRemainingSensor,
     ProtocolVersionSensor,
     EstimatedEnergySensor,
     EstimatedPowerSensor,
@@ -550,6 +552,12 @@ class TestSetupEntry:
 
         assert any(isinstance(e, ActiveAlertSensor) for e in entities)
 
+    async def test_every_device_gets_filter_time_remaining(self):
+        """It follows percent_filter, which is not gated on device type."""
+        for product_name in ("Wave_SPA_EU", "Something_Else"):
+            entities = await self._setup(product_name)
+            assert any(isinstance(e, FilterTimeRemainingSensor) for e in entities)
+
     async def test_unknown_device_gets_no_active_alert_sensor(self):
         """The alert datapoints are this product's, named from its own
         definition, so an unrecognised device gets no claim about them."""
@@ -571,6 +579,41 @@ class TestSetupEntry:
         )
         # Diagnostic sensors are not gated, so they are still created.
         assert any(isinstance(e, ProtocolVersionSensor) for e in entities)
+
+
+class TestFilterTimeRemainingSensor:
+    """Time left rather than percent worn."""
+
+    def _sensor(self, attrs: dict[str, Any] | None = None) -> FilterTimeRemainingSensor:
+        device = _make_device()
+        status = None if attrs is None else _make_status(attrs)
+        coordinator = _make_coordinator(device, status)
+        return FilterTimeRemainingSensor(
+            coordinator, _make_config_entry(), "test_device"
+        )
+
+    def test_reports_minutes_left(self) -> None:
+        sensor = self._sensor({"Time_filter": 10080})
+
+        assert sensor.native_value == 0
+
+    def test_a_fresh_filter(self) -> None:
+        """Seven days of filtering, in minutes."""
+        sensor = self._sensor({"Time_filter": 0})
+
+        assert sensor.native_value == 10080.0
+
+    def test_no_status_is_unknown(self) -> None:
+        assert self._sensor().native_value is None
+
+    def test_it_is_a_duration_offered_in_hours(self) -> None:
+        """Minutes natively, hours suggested, so Home Assistant converts and
+        the user picks - 168 hours reads better than 10080 minutes."""
+        sensor = self._sensor({"Time_filter": 0})
+
+        assert sensor.device_class == SensorDeviceClass.DURATION
+        assert sensor.native_unit_of_measurement == UnitOfTime.MINUTES
+        assert sensor.suggested_unit_of_measurement == UnitOfTime.HOURS
 
 
 class TestActiveAlertSensor:

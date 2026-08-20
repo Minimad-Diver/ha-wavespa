@@ -171,6 +171,51 @@ class TestPercentFilter:
         assert _status(Time_filter=-5).percent_filter == 100
 
 
+class TestFilterMinutesRemaining:
+    """Filtering time left, which is what someone deciding whether to order a
+    new cartridge actually wants to know.
+
+    Time of *filtering*, not time from now: the counter only advances while
+    the pump runs.
+    """
+
+    def test_a_fresh_filter_has_a_full_life(self) -> None:
+        """10080 minutes, which is seven days exactly."""
+        assert _status(Time_filter=0).filter_minutes_remaining == 10080.0
+        assert _status(Time_filter=0).filter_minutes_remaining == 7 * 24 * 60
+
+    def test_an_expired_filter_has_nothing_left(self) -> None:
+        assert _status(Time_filter=10080).filter_minutes_remaining == 0
+
+    def test_past_expiry_does_not_go_negative(self) -> None:
+        """The counter stops at 10080, but a spa that reported more should
+        not produce a filter with time owed on it."""
+        assert _status(Time_filter=10200).filter_minutes_remaining == 0
+
+    def test_a_part_used_filter(self) -> None:
+        """Half the counter spent is half the life left."""
+        assert _status(Time_filter=5040).filter_minutes_remaining == 5040.0
+
+    def test_a_count_is_a_minute(self) -> None:
+        """Measured on a live spa: 113 counts in 6759 seconds, 59.8s each.
+
+        Pinned because an earlier note put the tick at 65 seconds, which made
+        a full filter 182 hours rather than the 168 that 10080 minutes plainly
+        is. If that figure ever comes back, this fails.
+        """
+        assert _status(Time_filter=1000).filter_minutes_remaining == 10080 - 1000
+
+    def test_missing_is_none(self) -> None:
+        """Not knowing is not the same as nothing left."""
+        assert _status().filter_minutes_remaining is None
+
+    def test_unparsable_is_none_not_raise(self) -> None:
+        assert _status(Time_filter="unknown").filter_minutes_remaining is None
+
+    def test_string_value_is_coerced(self) -> None:
+        assert _status(Time_filter="10080").filter_minutes_remaining == 0
+
+
 class TestIsHeatingValueCoercion:
     """The API is inconsistent about types, so the readings are coerced."""
 

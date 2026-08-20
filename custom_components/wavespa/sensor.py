@@ -14,7 +14,7 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.const import UnitOfEnergy, UnitOfPower
+from homeassistant.const import UnitOfEnergy, UnitOfPower, UnitOfTime
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.const import EntityCategory
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -198,6 +198,7 @@ async def async_setup_entry(
                         native_unit_of_measurement="%",
                     ),
                 ),
+                FilterTimeRemainingSensor(coordinator, config_entry, device_id),
             ]
         )
 
@@ -227,6 +228,44 @@ class ProtocolVersionSensor(WavespaEntity, SensorEntity):
         """Return the protocol version, or None if the device is unknown."""
         device = self.wavespa_device
         return device.protocol_version if device is not None else None
+
+
+class FilterTimeRemainingSensor(WavespaEntity, SensorEntity):
+    """How much filtering the cartridge has left, as time rather than percent.
+
+    A percentage says how worn the filter is; this says how much use is left
+    in it, which is the question someone deciding whether to order a new one
+    is actually asking.
+
+    Reported in minutes and offered in hours, so Home Assistant converts
+    between them and the user picks. The underlying counter has no finer
+    resolution than about a minute anyway.
+    """
+
+    _attr_translation_key = "filter_time_remaining"
+    _attr_device_class = SensorDeviceClass.DURATION
+    _attr_native_unit_of_measurement = UnitOfTime.MINUTES
+    _attr_suggested_unit_of_measurement = UnitOfTime.HOURS
+    _attr_suggested_display_precision = 1
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(
+        self,
+        coordinator: WavespaUpdateCoordinator,
+        config_entry: WavespaConfigEntry,
+        device_id: str,
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator, config_entry, device_id)
+        self._attr_unique_id = f"{device_id}_filter_time_remaining"
+
+    @property
+    def native_value(self) -> StateType:
+        """Return the filtering time left, in minutes."""
+        if (status := self.status) is not None:
+            return status.filter_minutes_remaining
+        return None
 
 
 class ActiveAlertSensor(WavespaEntity, SensorEntity):

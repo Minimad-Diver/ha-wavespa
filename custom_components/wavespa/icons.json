@@ -13,6 +13,9 @@
       "percent_filter": {
         "default": "mdi:image-filter-tilt-shift"
       },
+      "filter_time_remaining": {
+        "default": "mdi:timer-sand"
+      },
       "protocol_version": {
         "default": "mdi:protocol"
       }

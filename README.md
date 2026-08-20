@@ -105,17 +105,19 @@ broadcast.
 
 Each spa gets:
 
-| Entity           | Type          | Notes                                          |
-| ---------------- | ------------- | ---------------------------------------------- |
-| Thermostat       | climate       | Target temperature, and heating on/off         |
-| Filter           | switch        | Filter pump. Turning it off also stops heating |
-| Bubbles          | switch        | Independent of the heater and pump             |
-| Alerts           | binary sensor | On when the spa reports a fault                |
-| Connected        | binary sensor | The cloud API's view of the spa (diagnostic)   |
-| Filter life      | sensor        | Remaining filter life, as a percentage         |
-| Estimated power  | sensor        | See below                                      |
-| Estimated energy | sensor        | See below                                      |
-| Protocol version | sensor        | Gizwits protocol version (diagnostic)          |
+| Entity                | Type          | Notes                                          |
+| --------------------- | ------------- | ---------------------------------------------- |
+| Thermostat            | climate       | Target temperature, and heating on/off         |
+| Filter                | switch        | Filter pump. Turning it off also stops heating |
+| Bubbles               | switch        | Independent of the heater and pump             |
+| Alerts                | binary sensor | On when the spa reports a fault                |
+| Active alert          | sensor        | Which fault, by name                           |
+| Connected             | binary sensor | The cloud API's view of the spa (diagnostic)   |
+| Filter life           | sensor        | Remaining filter life, as a percentage         |
+| Filter time remaining | sensor        | The same, as filtering time (diagnostic)       |
+| Estimated power       | sensor        | See below                                      |
+| Estimated energy      | sensor        | See below                                      |
+| Protocol version      | sensor        | Gizwits protocol version (diagnostic)          |
 
 Firmware versions are reported on the device itself rather than as separate
 sensors — see the device page in Home Assistant.
@@ -123,7 +125,18 @@ sensors — see the device page in Home Assistant.
 The **Alerts** sensor reports the three fault flags the manufacturer defines
 for this product: filter overdue, overheating, and undercooling. It is
 deliberately limited to those, rather than guessing at error codes the
-hardware has never been observed to send.
+hardware has never been observed to send. **Active alert** says which of them
+is raised, in words, because a binary sensor can only say "Problem".
+
+The commonest of the three by far is the filter one, and it clears only at the
+spa: press the Filter button on the spa's own control panel. Neither the app
+nor this integration can reset the counter, and the spa refuses to be
+controlled remotely until it has been.
+
+**Filter time remaining** counts the same thing as **Filter life** but in
+hours of _filtering_ rather than percent. It is not a countdown to a date: the
+spa's counter only advances while the pump runs, so a spa filtering eight
+hours a day takes about three weeks to spend a filter.
 
 ### Estimated power and energy
 

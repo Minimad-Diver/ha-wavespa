@@ -104,6 +104,29 @@ class WavespaDeviceStatus:
         percent = 100 - ((raw / _TIME_FILTER_MAX) * 100)
         return max(0, min(100, int(percent)))
 
+    @property
+    def filter_minutes_remaining(self) -> float | None:
+        """Return the filtering time left before the spa calls the filter spent.
+
+        Minutes of *filtering*, not minutes from now. Time_filter only
+        advances while the pump is running, so a spa that filters for eight
+        hours a day takes about three weeks to spend seven days of filter
+        life. The entity's name says so, because a duration that looks like a
+        countdown to a date would be read as one.
+
+        None when Time_filter is missing or unreadable, matching
+        percent_filter: not knowing is not the same as nothing left.
+        """
+        raw = as_int(self.attrs.get("Time_filter"))
+        if raw is None:
+            return None
+        # A count is a minute. Measured across a fresh filter on a live spa:
+        # 113 counts in 6759 seconds, or 59.8s each, which with the counter's
+        # one-count resolution is sixty. An earlier note here put it at 65s;
+        # that was wrong, and it made a full filter 182 hours instead of the
+        # 168 that 10080 minutes plainly is.
+        return float(max(0, _TIME_FILTER_MAX - raw))
+
     def alerts(self) -> dict[str, bool]:
         """Return each alert this spa reports, active or not.
 

@@ -73,6 +73,9 @@
       "percent_filter": {
         "name": "Filter life"
       },
+      "filter_time_remaining": {
+        "name": "Filter time remaining"
+      },
       "protocol_version": {
         "name": "Protocol version"
       }
