@@ -1,8 +1,11 @@
 """A TCP session with one spa over the local network.
 
-Read-only. Connect, authenticate, read status, stay alive. Writing datapoints
-is deliberately absent: a wrong byte offset on a write changes physical state
-on someone's spa, so it belongs in its own change with its own review.
+Connect, authenticate, read status, stay alive, and write datapoints.
+
+The write framing was established against real hardware rather than inferred,
+one datapoint at a time, because a wrong byte offset here changes physical
+state on someone's spa. Note that the device acknowledges commands it then
+declines - see write_datapoints.
 
 The shape follows GizwitsWebSocket - a supervisor loop around a single
 connection attempt, an asyncio.Event for shutdown, exponential backoff - both
@@ -28,7 +31,13 @@ from dataclasses import dataclass
 from logging import getLogger
 from typing import Any
 
-from .codec import CodecError, DatapointSchema, decode_attrs, require_datapoints
+from .codec import (
+    CodecError,
+    DatapointSchema,
+    decode_attrs,
+    encode_write,
+    require_datapoints,
+)
 from .framing import (
     CMD_LOGIN,
     CMD_LOGIN_RESPONSE,
@@ -39,7 +48,10 @@ from .framing import (
     CMD_PING,
     CMD_STATUS,
     CMD_STATUS_RESPONSE,
+    CMD_WRITE,
+    CMD_WRITE_ACK,
     P0_READ,
+    P0_WRITE,
     Frame,
     FramingError,
     pack,
@@ -203,6 +215,9 @@ class GizwitsLanSession:
         self._close_event = asyncio.Event()
         self._reconnect_count = 0
         self._connected = False
+        # Sequence number for writes. Echoed back in the ack, which is how
+        # an acknowledgement is attributed to the command that caused it.
+        self._write_seq = 0
 
         # Filled on the first successful connection. The module cannot
         # change what it reports, so it is asked once rather than per
@@ -345,6 +360,56 @@ class GizwitsLanSession:
         """
         frame = await self._request(CMD_MODULE_INFO, CMD_MODULE_INFO_RESPONSE)
         return parse_module_info(frame.payload)
+
+    async def write_datapoints(self, attrs: dict[str, Any]) -> None:
+        """Ask the spa to change one or more datapoints.
+
+        Framing established against real hardware:
+
+            seq(4, big-endian) + action + attr_flags + attr_vals
+
+        The sequence number is what makes an acknowledgement attributable -
+        it is echoed in the 0x94 ack, and the reason writes go through 0x93
+        rather than 0x90, whose replies could not be matched to a command.
+
+        **An acknowledgement does not mean the write was applied.** The ack
+        carries nothing but the sequence number - no status - and the device
+        acknowledges commands it then declines. Writing Filter=0 on its own is
+        acked and ignored, because the heater cannot run without the pump and
+        the spa will not stop the pump while heating is enabled; the same
+        command carrying Heater=0 as well is accepted. So a caller that needs
+        to know whether a change took effect must look at the state that comes
+        back, not at the return of this method.
+
+        Composing valid combinations is the caller's business rather than
+        this layer's - it is product behaviour, not protocol.
+
+        Raises:
+            CodecError: a datapoint that is unknown, read-only, or a value
+                that does not fit it.
+            LanSessionError: no acknowledgement arrived, or it did not match.
+        """
+        body = encode_write(self._schema, attrs)
+
+        # Wraps rather than growing past four bytes. Only uniqueness against
+        # commands still in flight matters, and there is at most one.
+        self._write_seq = (self._write_seq + 1) % 0xFFFFFFFF
+        seq = self._write_seq
+
+        payload = seq.to_bytes(4, "big") + bytes([P0_WRITE]) + body
+        _LOGGER.debug("Writing %s to %s (seq %d)", attrs, self._host, seq)
+
+        frame = await self._request(CMD_WRITE, CMD_WRITE_ACK, payload)
+
+        echoed = (
+            int.from_bytes(frame.payload[:4], "big")
+            if len(frame.payload) >= 4
+            else None
+        )
+        if echoed != seq:
+            raise LanSessionError(
+                f"{self._host} acknowledged sequence {echoed}, expected {seq}"
+            )
 
     async def _serve(self) -> None:
         """Wait for the connection to end, surfacing why it did."""

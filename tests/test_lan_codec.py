@@ -26,6 +26,7 @@ from custom_components.wavespa.lan.codec import (
     DatapointSchema,
     decode_attrs,
     encode_attrs,
+    encode_write,
     require_datapoints,
 )
 
@@ -305,6 +306,87 @@ class TestDecode:
         """Trailing bytes are not our business; a short one is."""
         decoded = decode_attrs(schema, OBSERVED_PAYLOAD + b"\xff\xff")
         assert decoded == OBSERVED_ATTRS
+
+
+class TestEncodeWrite:
+    """The attr_flags + attr_vals half of a 0x93 write.
+
+    Every expected byte string here was verified against a real spa: the
+    device accepted it and the datapoint changed, with nothing else moving.
+    """
+
+    def test_a_boolean(self, schema: DatapointSchema) -> None:
+        """Bubble is flag bit 1, and byte 0 bit 1 of the values."""
+        assert encode_write(schema, {"Bubble": 1}).hex() == "00020200000000"
+
+    def test_a_boolean_cleared(self, schema: DatapointSchema) -> None:
+        """Still flagged, so the device is told to set it to zero rather than
+        left to infer it from an absent flag."""
+        assert encode_write(schema, {"Bubble": 0}).hex() == "00020000000000"
+
+    def test_a_multi_byte_value(self, schema: DatapointSchema) -> None:
+        """Temperature_setup is flag bit 6, at byte 1 of the values.
+
+        The case that proves values sit at their schema byte offsets rather
+        than being packed together in flag order.
+        """
+        assert encode_write(schema, {"Temperature_setup": 23}).hex() == (
+            "00400017000000"
+        )
+
+    def test_several_at_once(self, schema: DatapointSchema) -> None:
+        """The combination a filter-off has to send.
+
+        The spa will not stop the pump while heating is enabled - Filter=0 on
+        its own is acknowledged and ignored - so both travel together.
+        """
+        assert encode_write(schema, {"Filter": 0, "Heater": 0}).hex() == (
+            "00050000000000"
+        )
+
+    def test_the_flag_field_is_two_bytes_for_this_product(
+        self, schema: DatapointSchema
+    ) -> None:
+        """One byte per eight writable datapoints; this product has ten."""
+        assert len(schema.writable_names) == 10
+        assert len(encode_write(schema, {"Bubble": 1})) == 2 + 5
+
+    def test_writing_nothing_is_refused(self, schema: DatapointSchema) -> None:
+        with pytest.raises(CodecError, match="at least one"):
+            encode_write(schema, {})
+
+    def test_an_unknown_datapoint_is_refused(self, schema: DatapointSchema) -> None:
+        with pytest.raises(CodecError, match="no datapoint named"):
+            encode_write(schema, {"NoSuchField": 1})
+
+    def test_a_read_only_datapoint_is_refused(self, schema: DatapointSchema) -> None:
+        """Silently dropping it would report a command as sent that the spa
+        was never asked to carry out."""
+        with pytest.raises(CodecError, match="read-only"):
+            encode_write(schema, {"Current_temperature": 20})
+
+    def test_an_alert_datapoint_is_refused(self, schema: DatapointSchema) -> None:
+        with pytest.raises(CodecError, match="read-only"):
+            encode_write(schema, {"Superheat": 0})
+
+    def test_a_value_that_does_not_fit_is_refused(
+        self, schema: DatapointSchema
+    ) -> None:
+        with pytest.raises(CodecError, match="does not fit"):
+            encode_write(schema, {"Temperature_setup": 999})
+
+    def test_a_write_round_trips_through_the_decoder(
+        self, schema: DatapointSchema
+    ) -> None:
+        """The value block is laid out the same way a status payload is, so
+        decoding one back gives the values that were written."""
+        body = encode_write(schema, {"Heater": 1, "Temperature_setup": 40})
+        values = body[2:]  # past the two flag bytes
+
+        decoded = decode_attrs(schema, values + bytes(4))
+
+        assert decoded["Heater"] == 1
+        assert decoded["Temperature_setup"] == 40
 
 
 class TestEncode:

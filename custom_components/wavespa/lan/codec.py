@@ -182,6 +182,68 @@ def require_datapoints(
         )
 
 
+def encode_write(schema: DatapointSchema, attrs: dict[str, Any]) -> bytes:
+    """Build the attr_flags + attr_vals half of a 0x93 write.
+
+    Established against real hardware, and both halves are derived from the
+    product definition rather than hardcoded:
+
+    - **attr_flags** carries one bit per *writable* datapoint, in the order
+      they appear in the definition, least significant bit first. Its width is
+      one byte per eight writable datapoints. The vendor documentation warns
+      that this ordering "cannot be changed arbitrarily", and definition order
+      is what the hardware was observed to accept.
+    - **attr_vals** is a *fixed* block spanning the writable region, with each
+      value at its normal schema byte offset - not a packed list of only the
+      flagged values. The flags say which entries are meaningful.
+
+    Writing an unknown or read-only datapoint raises rather than being
+    dropped: a command silently reduced to nothing would be reported as sent
+    while the spa did nothing at all.
+    """
+    if not attrs:
+        raise CodecError("a write must carry at least one datapoint")
+
+    writable = [dp for dp in schema.datapoints if dp.writable]
+    if not writable:
+        raise CodecError("this product has no writable datapoints")
+
+    positions = {dp.name: index for index, dp in enumerate(writable)}
+    values_size = max(dp.byte_offset + dp.width for dp in writable)
+
+    flags = 0
+    values = bytearray(values_size)
+
+    for name, value in attrs.items():
+        index = positions.get(name)
+        if index is None:
+            known = schema.by_name(name)
+            raise CodecError(
+                f"'{name}' is read-only on this product"
+                if known is not None
+                else f"this product has no datapoint named '{name}'"
+            )
+
+        flags |= 1 << index
+        dp = writable[index]
+
+        if dp.data_type == "bool":
+            if int(value):
+                values[dp.byte_offset] |= 1 << dp.bit_offset
+            continue
+
+        try:
+            encoded = int(value).to_bytes(dp.width, "big")
+        except (OverflowError, ValueError) as err:
+            raise CodecError(
+                f"{value!r} does not fit {dp.name} ({dp.width}-byte {dp.data_type})"
+            ) from err
+        values[dp.byte_offset : dp.byte_offset + dp.width] = encoded
+
+    flag_width = (len(writable) + 7) // 8
+    return flags.to_bytes(flag_width, "big") + bytes(values)
+
+
 def decode_attrs(schema: DatapointSchema, payload: bytes) -> dict[str, Any]:
     """Read a status payload into the attribute dictionary the cloud returns.
 

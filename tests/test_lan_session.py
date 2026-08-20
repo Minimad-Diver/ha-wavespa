@@ -24,6 +24,8 @@ from custom_components.wavespa.lan.framing import (
     CMD_PING,
     CMD_STATUS,
     CMD_STATUS_RESPONSE,
+    CMD_WRITE,
+    CMD_WRITE_ACK,
     P0_READ,
     pack,
     split_stream,
@@ -99,6 +101,7 @@ class FakeDevice:
         passcode: bytes = PASSCODE,
         status_payload: bytes = STATUS_PAYLOAD,
         answer_module_info: bool = True,
+        ack_writes: bool = True,
         module_info_payload: bytes = MODULE_INFO_PAYLOAD,
     ) -> None:
         self.reader = asyncio.StreamReader()
@@ -108,8 +111,11 @@ class FakeDevice:
         self.passcode = passcode
         self.status_payload = status_payload
         self.answer_module_info = answer_module_info
+        self._ack_writes_init = ack_writes
         self.module_info_payload = module_info_payload
         self.module_info_requests = 0
+        self.writes: list[bytes] = []
+        self.ack_writes = self._ack_writes_init
         self.pings_received = 0
         self.status_requests = 0
         self.connections = 0
@@ -132,6 +138,12 @@ class FakeDevice:
                     continue
                 if self.answer_status:
                     self._reply(CMD_STATUS_RESPONSE, self.status_payload)
+            elif frame.cmd == CMD_WRITE:
+                self.writes.append(frame.payload)
+                if self.ack_writes:
+                    # The real device acknowledges with the sequence number
+                    # alone - no status - and acks commands it then declines.
+                    self._reply(CMD_WRITE_ACK, frame.payload[:4])
             elif frame.cmd == CMD_MODULE_INFO:
                 self.module_info_requests += 1
                 if self.answer_module_info:
@@ -322,6 +334,110 @@ class TestHandshake:
         await session.connect()
 
         assert device.writer.commands_sent().count(0x0006) == 1
+        await session.disconnect()
+
+
+class TestWriting:
+    """Sending 0x93, and the ack that comes back.
+
+    The framing itself is pinned in test_lan_codec.py against byte strings a
+    real spa accepted; this is about the session's half - the sequence number,
+    the correlation, and what happens when the ack does not arrive.
+    """
+
+    async def test_a_write_is_sent_with_a_sequence_number(
+        self, schema: DatapointSchema
+    ) -> None:
+        device = FakeDevice()
+        session, _ = make_session(schema, device)
+        await session.connect()
+
+        await session.write_datapoints({"Bubble": 1})
+
+        assert len(device.writes) == 1
+        payload = device.writes[0]
+        assert int.from_bytes(payload[:4], "big") == 1  # first write
+        assert payload[4] == 0x01  # ACTION_CONTROL_DEV
+        assert payload[5:].hex() == "00020200000000"
+        await session.disconnect()
+
+    async def test_the_sequence_number_advances(self, schema: DatapointSchema) -> None:
+        """It is what attributes an ack to the command that caused it, so two
+        writes must not share one."""
+        device = FakeDevice()
+        session, _ = make_session(schema, device)
+        await session.connect()
+
+        await session.write_datapoints({"Bubble": 1})
+        await session.write_datapoints({"Bubble": 0})
+
+        seqs = [int.from_bytes(p[:4], "big") for p in device.writes]
+        assert seqs == [1, 2]
+        await session.disconnect()
+
+    async def test_several_datapoints_travel_together(
+        self, schema: DatapointSchema
+    ) -> None:
+        """A filter-off has to carry Heater=0, or the spa declines it."""
+        device = FakeDevice()
+        session, _ = make_session(schema, device)
+        await session.connect()
+
+        await session.write_datapoints({"Filter": 0, "Heater": 0})
+
+        assert device.writes[0][5:].hex() == "00050000000000"
+        await session.disconnect()
+
+    async def test_no_acknowledgement_raises(
+        self, schema: DatapointSchema, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            "custom_components.wavespa.lan.session._REPLY_TIMEOUT", 0.05
+        )
+        device = FakeDevice(ack_writes=False)
+        session, _ = make_session(schema, device)
+        await session.connect()
+
+        with pytest.raises(LanSessionError, match="no reply"):
+            await session.write_datapoints({"Bubble": 1})
+
+        await session.disconnect()
+
+    async def test_a_mismatched_acknowledgement_raises(
+        self, schema: DatapointSchema
+    ) -> None:
+        """An ack for a different command tells us nothing about ours."""
+        device = FakeDevice()
+        original = device.feed_request
+
+        def wrong_seq(data: bytes) -> None:
+            frames, _ = split_stream(data)
+            if any(f.cmd == CMD_WRITE for f in frames):
+                device.reader.feed_data(pack(CMD_WRITE_ACK, (999).to_bytes(4, "big")))
+                return
+            original(data)
+
+        session, _ = make_session(schema, device)
+        await session.connect()
+        device.feed_request = wrong_seq  # type: ignore[method-assign]
+
+        with pytest.raises(LanSessionError, match="acknowledged sequence"):
+            await session.write_datapoints({"Bubble": 1})
+
+        await session.disconnect()
+
+    async def test_an_invalid_datapoint_never_reaches_the_spa(
+        self, schema: DatapointSchema
+    ) -> None:
+        """Refused by the encoder, so nothing is sent at all."""
+        device = FakeDevice()
+        session, _ = make_session(schema, device)
+        await session.connect()
+
+        with pytest.raises(CodecError):
+            await session.write_datapoints({"Current_temperature": 20})
+
+        assert device.writes == []
         await session.disconnect()
 
 

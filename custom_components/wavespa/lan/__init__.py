@@ -5,8 +5,9 @@ Gizwits cloud. Used by the coordinator when a spa address is configured in the
 integration options; with none set, local control is off and the cloud is the
 only transport.
 
-Still read-only. Commands are sent over the cloud, because a wrong byte offset
-on a write changes physical state on someone's spa - see the write path issue.
+The session can write datapoints as well as read them. Whether the
+integration's entities route their commands here or through the cloud is a
+separate decision, made above this package.
 
 - `framing`: the transport envelope, identical for every Gizwits product.
 - `codec`: turning a datapoint payload into the same attribute dictionary the
@@ -24,6 +25,7 @@ from .codec import (
     DatapointSchema,
     decode_attrs,
     encode_attrs,
+    encode_write,
     require_datapoints,
 )
 from .framing import Frame, pack, unpack
@@ -39,6 +41,7 @@ __all__ = [
     "LoginRefused",
     "decode_attrs",
     "encode_attrs",
+    "encode_write",
     "pack",
     "require_datapoints",
     "unpack",
