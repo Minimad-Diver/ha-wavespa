@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum, auto
+from math import floor
 from typing import Any
 
 
@@ -101,8 +102,27 @@ class WavespaDeviceStatus:
         raw = as_int(self.attrs.get("Time_filter"))
         if raw is None:
             return None
+        # Rounded to nearest, which is what the manufacturer's own app does.
+        # Established from two readings taken either side of the point where
+        # the app changed: it still said 99% at a count in the 140s, and 98%
+        # at 159. Truncating flips at 101 and rounding up not until 202, so
+        # both are ruled out and only nearest fits.
+        #
+        # Truncating also meant a filter reset a minute ago read 99% rather
+        # than 100%, which is what prompted looking at this at all.
+        #
+        # floor(x + 0.5) rather than round(), because round() breaks exact
+        # halves towards even and there are about twenty counts where the
+        # percentage lands on one. Nothing turns on those, but half-up is what
+        # "rounded" is taken to mean and is likelier to be what the app does.
+        #
+        # The cost, accepted knowingly: 0% now arrives about fifty minutes
+        # before the spa raises Overtime_filter, so the two no longer coincide
+        # exactly. Agreeing with the app the user is comparing against is worth
+        # more than that alignment, and the Alerts sensors report expiry
+        # properly.
         percent = 100 - ((raw / _TIME_FILTER_MAX) * 100)
-        return max(0, min(100, int(percent)))
+        return max(0, min(100, floor(percent + 0.5)))
 
     @property
     def filter_minutes_remaining(self) -> float | None:

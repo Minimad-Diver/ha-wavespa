@@ -152,9 +152,40 @@ class TestPercentFilter:
         Confirms the direction with a value from hardware rather than only the
         two endpoints: a small raw value is a nearly new filter, so it reports
         nearly full life. If the counter were a countdown this would be a
-        nearly exhausted filter reporting 99%.
+        nearly exhausted filter reporting almost nothing.
         """
-        assert _status(Time_filter=22).percent_filter == 99
+        assert _status(Time_filter=22).percent_filter == 100
+
+    def test_it_agrees_with_the_manufacturers_app(self) -> None:
+        """The spa's own app read 98% at Time_filter=159, and 99% shortly
+        before at a count in the 140s.
+
+        Those two readings are what fix the rounding. Truncating changes at
+        101 and would have said 98 for both; rounding up holds 99 until 202
+        and would have said 99 for both. Only nearest, which changes at 152,
+        fits the pair.
+        """
+        assert _status(Time_filter=159).percent_filter == 98
+        assert _status(Time_filter=145).percent_filter == 99
+
+    def test_a_just_reset_filter_is_full(self) -> None:
+        """The counter ticks within a minute of a reset, and a filter changed
+        sixty seconds ago is not 99% of a filter. This is what prompted
+        looking at the rounding at all."""
+        assert _status(Time_filter=1).percent_filter == 100
+        assert _status(Time_filter=50).percent_filter == 100
+
+    def test_zero_percent_arrives_slightly_before_the_spa_says_so(self) -> None:
+        """0% is reached about fifty minutes before Overtime_filter is raised.
+
+        A knowing trade: rounding up would keep the two exactly aligned, but
+        it disagrees with the manufacturer's app, and the app is what the user
+        compares against. Expiry is reported properly by the Alerts and Active
+        alert sensors, so nothing depends on this being the signal.
+        """
+        assert _status(Time_filter=10029).percent_filter == 1
+        assert _status(Time_filter=10030).percent_filter == 0
+        assert _status(Time_filter=10080).percent_filter == 0
 
     def test_missing_is_none(self) -> None:
         assert _status().percent_filter is None
