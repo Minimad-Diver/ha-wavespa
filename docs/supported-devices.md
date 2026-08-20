@@ -67,11 +67,27 @@ Four things worth knowing about this sample:
   service life: a spa read 10080 with `Overtime_filter` raised, and still
   10080 fifteen minutes later with the pump running. Taking 10200 literally
   left the Filter life sensor reporting 1% on a filter the spa had already
-  declared expired, so it could never reach 0. The unit is nominally minutes,
-  though it was measured ticking once per 65 seconds of filtering.
+  declared expired, so it could never reach 0. **The unit is minutes**, and a
+  count is a minute: measured across a freshly reset filter on a live spa at
+  113 counts in 6759 seconds, or 59.8 seconds each, which at one-count
+  resolution is sixty. So a full filter is 10080 minutes — 168 hours, seven
+  days — of _filtering_, which is not seven days of elapsed time unless the
+  pump never stops. An earlier note here put the tick at 65 seconds; that was
+  wrong, and it would have overstated a full filter by two weeks.
 - `Overtime_filter` is raised when `Time_filter` reaches that ceiling, and is
-  the alert a Wave Spa raises in ordinary use: the filter needs changing, and
-  the spa carries on running meanwhile.
+  the alert a Wave Spa raises in ordinary use. **It clears only from the spa
+  itself**: pressing the Filter button on the spa's own control panel resets
+  the counter. Neither the mobile app nor this integration can reset it, and
+  no writable datapoint is known to do so, so treat an expired filter as
+  needing someone to walk out to it. Confirmed on a live spa: the press took
+  `Time_filter` from 10080 to zero and cleared `Overtime_filter` at once.
+- **While that alert stands, the spa refuses to be controlled remotely.** The
+  same live spa would not accept commands from the mobile app until the filter
+  had been reset at the panel. Whether the refusal is enforced by the device
+  or only by the app has not been established, and it matters for the write
+  path: a LAN write is acknowledged whether or not it is acted on, so a
+  command sent under this condition may well be accepted and ignored, exactly
+  as `Filter=0` is when the heater is enabled.
 - No `E32` or any other `E`-code is reported, and none of the `system_err*`,
   `earth` or `error` attributes appear at all. Those are Bestway heritage and
   this hardware has never been observed to send them, which is why the Alerts
