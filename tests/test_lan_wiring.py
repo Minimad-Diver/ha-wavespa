@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import pathlib
+from collections.abc import Callable
 from contextlib import ExitStack
 from datetime import datetime, timedelta
 from typing import Any, cast
@@ -107,6 +109,22 @@ def _merge_mock(coordinator: WavespaUpdateCoordinator) -> MagicMock:
     return cast(MagicMock, coordinator.api.merge_device_attrs)
 
 
+async def _settle(until: Callable[[], bool], turns: int = 500) -> None:
+    """Yield to the event loop until `until` passes.
+
+    The test harness fast-forwards time, so `await asyncio.sleep(0.05)` is a
+    fixed number of event-loop turns rather than a duration - a test that
+    sleeps and assumes it waited long enough breaks the moment the code under
+    test needs one more turn. Waiting on the condition being asserted does not
+    have that failure mode.
+    """
+    for _ in range(turns):
+        if until():
+            return
+        await asyncio.sleep(0)
+    raise AssertionError(f"condition never came true within {turns} turns")
+
+
 def _entry(hass: HomeAssistant, **options: Any) -> MockConfigEntry:
     future = (datetime.now() + timedelta(days=31)).timestamp()
     entry = MockConfigEntry(
@@ -136,6 +154,7 @@ async def _setup(
     definition: Any = None,
     real_session_class: bool = False,
     fetch: Any = None,
+    until: Callable[[], bool] | None = None,
 ) -> Any:
     """Set the entry up with the cloud stubbed out, returning the session mock.
 
@@ -171,7 +190,10 @@ async def _setup(
         for each in patches:
             stack.enter_context(each)
         await hass.config_entries.async_setup(entry.entry_id)
-        await asyncio.sleep(0.05)
+        if until is None:
+            await asyncio.sleep(0.05)
+        else:
+            await _settle(until)
 
     return lan_cls
 
@@ -305,6 +327,132 @@ class TestSetupRefusals:
         assert len(attempts) == 3
         assert entry.runtime_data.lan is session
         assert session.started
+
+    async def test_retrying_does_not_stop_when_the_delays_run_out(
+        self, hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The schedule escalates and then holds. It is not a budget.
+
+        A definition endpoint unreachable for two hours is not more
+        permanently broken than one unreachable for one, so an attempt limit
+        would decide nothing except how long an outage has to last before the
+        user is silently back to needing a reload they have no reason to think
+        of. Five failures against a two-entry schedule, so this fails if the
+        loop is ever bounded by the length of it again.
+        """
+        monkeypatch.setattr(
+            "custom_components.wavespa._DEFINITION_RETRY_DELAYS", (0, 0)
+        )
+        entry = _entry(hass, **{CONF_LAN_HOST: _HOST})
+        session = _FakeSession()
+        attempts: list[int] = []
+
+        def flaky(_product_key: str) -> Any:
+            attempts.append(1)
+            if len(attempts) < 6:
+                raise RuntimeError("network not ready")
+            return _DEFINITION
+
+        await _setup(
+            hass,
+            entry,
+            {"did": _device()},
+            session=session,
+            fetch=flaky,
+            until=lambda: session.started,
+        )
+
+        assert len(attempts) == 6
+        assert entry.runtime_data.lan is session
+
+    async def test_repeated_failures_warn_once_and_then_debug(
+        self,
+        hass: HomeAssistant,
+        caplog: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Retrying forever must not mean warning forever.
+
+        Holding at fifteen minutes would otherwise put a warning in the log
+        four times an hour for as long as Home Assistant runs, which teaches
+        the user to scroll past the log rather than to fix the cause. The
+        failures are still recorded at debug for anyone diagnosing it.
+        """
+        caplog.set_level(logging.DEBUG)
+        monkeypatch.setattr("custom_components.wavespa._DEFINITION_RETRY_DELAYS", (0,))
+        entry = _entry(hass, **{CONF_LAN_HOST: _HOST})
+        session = _FakeSession()
+        attempts: list[int] = []
+
+        def flaky(_product_key: str) -> Any:
+            attempts.append(1)
+            if len(attempts) < 5:
+                raise RuntimeError("no route")
+            return _DEFINITION
+
+        await _setup(
+            hass,
+            entry,
+            {"did": _device()},
+            session=session,
+            fetch=flaky,
+            until=lambda: session.started,
+        )
+
+        warned = [
+            record
+            for record in caplog.records
+            if record.levelno == logging.WARNING
+            and "Could not set up local access" in record.getMessage()
+        ]
+        debugged = [
+            record
+            for record in caplog.records
+            if record.levelno == logging.DEBUG
+            and "Local access attempt" in record.getMessage()
+        ]
+        assert len(warned) == 1
+        assert "logged once an hour" in warned[0].getMessage()
+        assert len(debugged) == 3
+
+    async def test_the_warning_returns_once_the_interval_has_passed(
+        self,
+        hass: HomeAssistant,
+        caplog: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Throttled, not silenced - a failure that never clears keeps being
+        reported, just not on every attempt."""
+        monkeypatch.setattr("custom_components.wavespa._DEFINITION_RETRY_DELAYS", (0,))
+        monkeypatch.setattr(
+            "custom_components.wavespa._DEFINITION_RETRY_LOG_INTERVAL", 0
+        )
+        entry = _entry(hass, **{CONF_LAN_HOST: _HOST})
+        session = _FakeSession()
+        attempts: list[int] = []
+
+        def flaky(_product_key: str) -> Any:
+            attempts.append(1)
+            if len(attempts) < 4:
+                raise RuntimeError("no route")
+            return _DEFINITION
+
+        await _setup(
+            hass,
+            entry,
+            {"did": _device()},
+            session=session,
+            fetch=flaky,
+            until=lambda: session.started,
+        )
+
+        warned = [
+            record
+            for record in caplog.records
+            if record.levelno == logging.WARNING
+            and "Could not set up local access" in record.getMessage()
+        ]
+        assert len(warned) == 3
 
     async def test_an_incompatible_product_is_refused(
         self, hass: HomeAssistant, caplog: pytest.LogCaptureFixture

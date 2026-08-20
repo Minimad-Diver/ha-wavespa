@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timedelta
 from logging import getLogger
+from time import monotonic
 
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
@@ -74,10 +75,18 @@ def _async_remove_obsolete_entities(
 
 # How long to wait between attempts at the product's datapoint definition.
 # It is fetched from the cloud, so the usual reason for failing is that the
-# network is not ready yet. Escalating, then holding at fifteen minutes for as
+# network is not ready yet. Escalating, then holding at the last value for as
 # long as the entry is loaded: one request a quarter of an hour costs nothing,
-# and giving up entirely would put us back to needing a manual reload.
-_DEFINITION_RETRY_DELAYS = (30, 60, 300, 900, 900, 900, 900, 900)
+# and there is no attempt count after which the answer changes, so giving up
+# would only put us back to needing a manual reload the user has no reason to
+# think of.
+_DEFINITION_RETRY_DELAYS = (30, 60, 300, 900)
+
+# Retrying for as long as the entry is loaded means a failure that never
+# clears would otherwise warn every fifteen minutes for as long as Home
+# Assistant runs, which teaches the user to scroll past the log rather than to
+# fix the cause. The first failure is always reported; after that, hourly.
+_DEFINITION_RETRY_LOG_INTERVAL = 3600
 
 
 _PLATFORMS: list[Platform] = [
@@ -160,8 +169,17 @@ async def _async_setup_lan(
         Deliberately not ConfigEntryNotReady: that would retry the whole entry
         and take the cloud transport down with it, over a fetch that only
         local access needs.
+
+        There is no attempt limit. A definition endpoint that is unreachable
+        for two hours is not more permanently broken than one unreachable for
+        one, so any ceiling only decides how long an outage has to last before
+        the user is silently back to needing a reload.
         """
-        for attempt, delay in enumerate(_DEFINITION_RETRY_DELAYS, start=1):
+        attempt = 0
+        last_warned: float | None = None
+
+        while True:
+            attempt += 1
             try:
                 definition = await api.get_datapoint_definition(device.product_key)
                 schema = DatapointSchema(definition)
@@ -180,13 +198,32 @@ async def _async_setup_lan(
                 _LOGGER.warning("Local access is not available for this spa: %s", err)
                 return
             except Exception as err:  # pylint: disable=broad-except
-                _LOGGER.warning(
-                    "Could not set up local access (attempt %d): %s. Retrying "
-                    "in %d seconds; the cloud transport is unaffected",
-                    attempt,
-                    err,
-                    delay,
-                )
+                delay = _DEFINITION_RETRY_DELAYS[
+                    min(attempt, len(_DEFINITION_RETRY_DELAYS)) - 1
+                ]
+                now = monotonic()
+                if (
+                    last_warned is None
+                    or now - last_warned >= _DEFINITION_RETRY_LOG_INTERVAL
+                ):
+                    last_warned = now
+                    _LOGGER.warning(
+                        "Could not set up local access (attempt %d): %s. Retrying "
+                        "in %d seconds, and every %d seconds after that; the "
+                        "cloud transport is unaffected, and further failures are "
+                        "logged once an hour",
+                        attempt,
+                        err,
+                        delay,
+                        _DEFINITION_RETRY_DELAYS[-1],
+                    )
+                else:
+                    _LOGGER.debug(
+                        "Local access attempt %d failed: %s. Retrying in %d seconds",
+                        attempt,
+                        err,
+                        delay,
+                    )
                 await asyncio.sleep(delay)
                 continue
 
@@ -195,13 +232,6 @@ async def _async_setup_lan(
             _LOGGER.debug("LAN session to %s starting for device %s", host, device_id)
             await session.async_run()
             return
-
-        _LOGGER.warning(
-            "Gave up setting up local access for %s after %d attempts; reload "
-            "the integration to try again",
-            host,
-            len(_DEFINITION_RETRY_DELAYS),
-        )
 
     # Tracked, so HA cancels it on unload. An untracked task would keep
     # reconnecting after a reload and hold one of the spa's few connection
