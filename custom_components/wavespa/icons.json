@@ -1,6 +1,9 @@
 {
   "entity": {
     "sensor": {
+      "active_alert": {
+        "default": "mdi:alert-circle-outline"
+      },
       "estimated_power": {
         "default": "mdi:flash"
       },

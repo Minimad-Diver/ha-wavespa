@@ -132,6 +132,18 @@ class TestPercentFilter:
         assert _status(Time_filter=0).percent_filter == 100
 
     def test_empty(self) -> None:
+        """10080 minutes is seven days of filtering, and where the counter
+        stops - observed on a real spa, twice, fifteen minutes apart with the
+        pump running and Overtime_filter raised.
+
+        Pinned because the product definition says max 10200, and believing
+        that left this sensor reporting 1% on a filter the spa had already
+        declared expired.
+        """
+        assert _status(Time_filter=10080).percent_filter == 0
+
+    def test_the_definitions_ceiling_is_not_the_service_life(self) -> None:
+        """Past the end is still empty rather than negative."""
         assert _status(Time_filter=10200).percent_filter == 0
 
     def test_observed_device_value(self) -> None:

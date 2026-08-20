@@ -42,6 +42,21 @@ ESTIMATED_BUBBLES_WATTS = DEFAULT_BUBBLES_WATTS
 ESTIMATED_FILTER_WATTS = DEFAULT_FILTER_WATTS
 
 
+# What each alert datapoint is called in the user interface. Keys are the
+# datapoint names the spa sends; values are the enum options this sensor
+# reports and strings.json translates. Anything the spa raises that is not
+# listed here is still counted by the Alerts binary sensor - this only decides
+# what can be named.
+_ALERT_STATES = {
+    "Overtime_filter": "filter_expired",
+    "Superheat": "overheating",
+    "Undercooling": "too_cold",
+}
+
+_ALERT_NONE = "none"
+_ALERT_MULTIPLE = "multiple"
+
+
 @dataclass(frozen=True)
 class Wattages:
     """The assumed draw of each load, in watts."""
@@ -161,6 +176,11 @@ async def async_setup_entry(
                         config_entry,
                         device_id,
                     ),
+                    ActiveAlertSensor(
+                        coordinator,
+                        config_entry,
+                        device_id,
+                    ),
                 ]
             )
 
@@ -207,6 +227,58 @@ class ProtocolVersionSensor(WavespaEntity, SensorEntity):
         """Return the protocol version, or None if the device is unknown."""
         device = self.wavespa_device
         return device.protocol_version if device is not None else None
+
+
+class ActiveAlertSensor(WavespaEntity, SensorEntity):
+    """Which fault the spa is reporting, named rather than merely flagged.
+
+    The Alerts binary sensor carries device class PROBLEM, so Home Assistant
+    renders it as "Problem" and the reason sits out of sight in the entity's
+    attributes. That is enough to drive an automation and not enough to tell
+    the user what to do about it - "Filter expired" means change the filter,
+    while "Problem" means go and read the attributes.
+
+    An enum rather than free text, so the state is translatable and stays a
+    fixed set an automation can match on.
+    """
+
+    _attr_translation_key = "active_alert"
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = [_ALERT_NONE, *_ALERT_STATES.values(), _ALERT_MULTIPLE]
+
+    def __init__(
+        self,
+        coordinator: WavespaUpdateCoordinator,
+        config_entry: WavespaConfigEntry,
+        device_id: str,
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator, config_entry, device_id)
+        self._attr_unique_id = f"{device_id}_active_alert"
+
+    @property
+    def native_value(self) -> StateType:
+        """Return the raised alert by name, or that none is."""
+        status = self.status
+        if status is None:
+            return None
+
+        raised = [
+            _ALERT_STATES[name]
+            for name in status.active_alerts()
+            if name in _ALERT_STATES
+        ]
+        if not raised:
+            return _ALERT_NONE
+        # Naming one of several would hide the rest, and an enum can only hold
+        # one value. The attributes below say which, so nothing is lost.
+        return raised[0] if len(raised) == 1 else _ALERT_MULTIPLE
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Return every alert individually, so none is hidden by "multiple"."""
+        status = self.status
+        return None if status is None else status.alerts()
 
 
 class FilterPercentSensor(WavespaEntity, SensorEntity):

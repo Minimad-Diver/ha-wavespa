@@ -34,18 +34,6 @@ _SPA_ALERTS_SENSOR_DESCRIPTION = BinarySensorEntityDescription(
     device_class=BinarySensorDeviceClass.PROBLEM,
 )
 
-# The attributes the manufacturer types as "alert" in the product definition
-# (product_key 747be354e00449e799883a966d0c9cbd, byte 8 bits 0-2), rather than
-# as status_writable or status_readonly like everything else.
-#
-# Named explicitly, not pattern-matched. The previous sensor searched for
-# system_err*, E##, earth and error - Bestway names this hardware has never
-# sent - so it could not turn on at all. Guessing at attribute meanings is
-# also how the Heater switch went wrong, so this list changes only when the
-# product definition says it should.
-_ALERT_ATTRS = ("Overtime_filter", "Superheat", "Undercooling")
-
-
 # Entity state comes from the coordinator, so updates are not per-entity
 # polling and do not need serialising.
 PARALLEL_UPDATES = 0
@@ -145,23 +133,13 @@ class DeviceAlertsSensor(WavespaEntity, BinarySensorEntity):
     def _alerts(self) -> dict[str, bool]:
         """Return each alert the spa reports, active or not.
 
-        Attributes the spa does not send are omitted rather than reported as
-        clear, so the attribute list reflects what this model actually has.
-
-        Read through flag() for the same reason as everywhere else: bool("0")
-        is True, and a spa sending its flags as text would otherwise raise a
-        fault that is not there - on the entity whose whole job is saying
-        whether something is wrong.
+        The reading itself lives on the status model, because the Active alert
+        sensor needs exactly the same answer and two entities disagreeing
+        about whether something is wrong would be worse than either being
+        wrong on its own.
         """
         status = self.status
-        if status is None:
-            return {}
-
-        return {
-            name: status.flag(name) is True
-            for name in _ALERT_ATTRS
-            if name in status.attrs
-        }
+        return {} if status is None else status.alerts()
 
     @property
     def is_on(self) -> bool | None:

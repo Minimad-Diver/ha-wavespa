@@ -56,15 +56,22 @@ support for a new model, or working out which attribute drives a feature.
 | `Temp1` `Temp2` `Temp3` | `0`     | Not used - meaning unknown      |
 | `bit1` `bit2`           | `0`     | Not used - meaning unknown      |
 
-Three things worth knowing about this sample:
+Four things worth knowing about this sample:
 
 - `Heater` is `1` while the water is 26 °C against a 24 °C target. The flag
   means heating is _enabled_, not that the element is drawing power — which is
   why the integration compares the two temperatures rather than trusting it.
-- `Time_filter` counts **up** as the filter is used, towards a maximum of
-  10200 minutes. Measured against a live spa at one minute per 65 seconds of
-  filtering, so a full filter life is about 170 hours. The Filter life sensor
-  reports the inverse as a percentage.
+- `Time_filter` counts **up** as the filter is used and stops at 10080, which
+  is exactly seven days. The definition's `uint_spec` says the maximum is
+  10200, but that is the largest value the field can carry rather than the
+  service life: a spa read 10080 with `Overtime_filter` raised, and still
+  10080 fifteen minutes later with the pump running. Taking 10200 literally
+  left the Filter life sensor reporting 1% on a filter the spa had already
+  declared expired, so it could never reach 0. The unit is nominally minutes,
+  though it was measured ticking once per 65 seconds of filtering.
+- `Overtime_filter` is raised when `Time_filter` reaches that ceiling, and is
+  the alert a Wave Spa raises in ordinary use: the filter needs changing, and
+  the spa carries on running meanwhile.
 - No `E32` or any other `E`-code is reported, and none of the `system_err*`,
   `earth` or `error` attributes appear at all. Those are Bestway heritage and
   this hardware has never been observed to send them, which is why the Alerts
@@ -81,21 +88,21 @@ offered.
 
 For `747be354e00449e799883a966d0c9cbd` the status payload is 9 bytes:
 
-| Byte | Bits | Datapoint               | Type                         |
-| ---- | ---- | ----------------------- | ---------------------------- |
-| 0    | 0    | `Heater`                | `status_writable`            |
-| 0    | 1    | `Bubble`                | `status_writable`            |
-| 0    | 2    | `Filter`                | `status_writable`            |
-| 0    | 3    | `Fp`                    | `status_writable`            |
-| 0    | 4    | `bit1`                  | `status_writable`            |
-| 0    | 5    | `bit2`                  | `status_writable`            |
-| 1    | -    | `Temperature_setup`     | `status_writable`            |
-| 2-4  | -    | `Temp1` `Temp2` `Temp3` | `status_writable`            |
-| 5    | -    | `Current_temperature`   | `status_readonly`            |
-| 6-7  | -    | `Time_filter`           | `status_readonly`, max 10200 |
-| 8    | 0    | `Overtime_filter`       | `alert`                      |
-| 8    | 1    | `Superheat`             | `alert`                      |
-| 8    | 2    | `Undercooling`          | `alert`                      |
+| Byte | Bits | Datapoint               | Type                               |
+| ---- | ---- | ----------------------- | ---------------------------------- |
+| 0    | 0    | `Heater`                | `status_writable`                  |
+| 0    | 1    | `Bubble`                | `status_writable`                  |
+| 0    | 2    | `Filter`                | `status_writable`                  |
+| 0    | 3    | `Fp`                    | `status_writable`                  |
+| 0    | 4    | `bit1`                  | `status_writable`                  |
+| 0    | 5    | `bit2`                  | `status_writable`                  |
+| 1    | -    | `Temperature_setup`     | `status_writable`                  |
+| 2-4  | -    | `Temp1` `Temp2` `Temp3` | `status_writable`                  |
+| 5    | -    | `Current_temperature`   | `status_readonly`                  |
+| 6-7  | -    | `Time_filter`           | `status_readonly`, field max 10200 |
+| 8    | 0    | `Overtime_filter`       | `alert`                            |
+| 8    | 1    | `Superheat`             | `alert`                            |
+| 8    | 2    | `Undercooling`          | `alert`                            |
 
 Two consequences of the manufacturer's own typing:
 

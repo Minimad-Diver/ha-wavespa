@@ -126,7 +126,12 @@ class TestSchema:
         )
 
     def test_time_filter_is_a_two_byte_value(self, schema: DatapointSchema) -> None:
-        """Confirms _TIME_FILTER_MAX = 10200 is a uint16, not a guess."""
+        """The definition's 10200 ceiling is a uint16 field, not a guess.
+
+        That ceiling is what the field can carry, not the filter's service
+        life - the counter stops at 10080. _TIME_FILTER_MAX in model.py is the
+        latter, and deliberately not this number.
+        """
         time_filter = schema.by_name("Time_filter")
         assert time_filter is not None
         assert time_filter.data_type == "uint16"

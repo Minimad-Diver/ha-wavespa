@@ -26,6 +26,7 @@ from custom_components.wavespa.sensor import (
     ESTIMATED_BUBBLES_WATTS,
     ESTIMATED_FILTER_WATTS,
     ESTIMATED_HEATER_WATTS,
+    ActiveAlertSensor,
     ProtocolVersionSensor,
     EstimatedEnergySensor,
     EstimatedPowerSensor,
@@ -544,6 +545,18 @@ class TestSetupEntry:
         assert any(isinstance(e, EstimatedPowerSensor) for e in entities)
         assert any(isinstance(e, EstimatedEnergySensor) for e in entities)
 
+    async def test_spa_gets_an_active_alert_sensor(self):
+        entities = await self._setup("Wave_SPA_EU")
+
+        assert any(isinstance(e, ActiveAlertSensor) for e in entities)
+
+    async def test_unknown_device_gets_no_active_alert_sensor(self):
+        """The alert datapoints are this product's, named from its own
+        definition, so an unrecognised device gets no claim about them."""
+        entities = await self._setup("Something_Else")
+
+        assert not any(isinstance(e, ActiveAlertSensor) for e in entities)
+
     async def test_unknown_device_skips_estimated_sensors(self):
         """An unsupported device type gets no wattage estimates.
 
@@ -558,6 +571,87 @@ class TestSetupEntry:
         )
         # Diagnostic sensors are not gated, so they are still created.
         assert any(isinstance(e, ProtocolVersionSensor) for e in entities)
+
+
+class TestActiveAlertSensor:
+    """Naming the fault, rather than only flagging that there is one.
+
+    The values pinned here come from a real spa: Overtime_filter arrived as 1
+    with Time_filter at 10080, which is what prompted the entity.
+    """
+
+    def _sensor(self, attrs: dict[str, Any] | None = None) -> ActiveAlertSensor:
+        device = _make_device()
+        status = None if attrs is None else _make_status(attrs)
+        coordinator = _make_coordinator(device, status)
+        return ActiveAlertSensor(coordinator, _make_config_entry(), "test_device")
+
+    def test_a_healthy_spa_reports_none(self):
+        sensor = self._sensor({"Overtime_filter": 0, "Superheat": 0, "Undercooling": 0})
+
+        assert sensor.native_value == "none"
+
+    def test_an_expired_filter_is_named(self):
+        """The case that prompted this: "Problem" does not say what to do,
+        and "Filter expired" says change the filter."""
+        sensor = self._sensor({"Overtime_filter": 1, "Superheat": 0, "Undercooling": 0})
+
+        assert sensor.native_value == "filter_expired"
+
+    def test_overheating_is_named(self):
+        sensor = self._sensor({"Superheat": 1})
+
+        assert sensor.native_value == "overheating"
+
+    def test_water_too_cold_is_named(self):
+        sensor = self._sensor({"Undercooling": 1})
+
+        assert sensor.native_value == "too_cold"
+
+    def test_several_at_once_are_not_reduced_to_one(self):
+        """An enum holds one value, so naming one of several would hide the
+        rest. The attributes still carry each of them."""
+        sensor = self._sensor({"Overtime_filter": 1, "Superheat": 1})
+
+        assert sensor.native_value == "multiple"
+        assert sensor.extra_state_attributes == {
+            "Overtime_filter": True,
+            "Superheat": True,
+        }
+
+    def test_flags_sent_as_text_are_read_as_numbers(self):
+        """bool("0") is True, so a spa sending its flags as strings would
+        otherwise report a fault that is not there."""
+        sensor = self._sensor({"Overtime_filter": "0"})
+
+        assert sensor.native_value == "none"
+
+    def test_an_alert_the_spa_does_not_send_is_not_invented(self):
+        """Absent is not the same as clear - this model may not have it, and
+        reporting it as clear would claim a reading we never got."""
+        sensor = self._sensor({"Overtime_filter": 0})
+
+        assert sensor.extra_state_attributes == {"Overtime_filter": False}
+        assert sensor.native_value == "none"
+
+    def test_no_status_is_unknown_not_healthy(self):
+        """Reporting "none" with nothing to go on would say the spa is fine
+        when we simply have not heard from it."""
+        sensor = self._sensor()
+
+        assert sensor.native_value is None
+
+    def test_every_reported_state_is_a_declared_option(self):
+        """Home Assistant rejects an enum state outside its options list."""
+        for attrs in (
+            {},
+            {"Overtime_filter": 1},
+            {"Superheat": 1},
+            {"Undercooling": 1},
+            {"Overtime_filter": 1, "Undercooling": 1},
+        ):
+            sensor = self._sensor(attrs)
+            assert sensor.native_value in (sensor.options or [])
 
 
 class TestProtocolVersionSensor:

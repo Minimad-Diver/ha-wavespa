@@ -35,7 +35,28 @@ class TemperatureUnit(Enum):
 # Full service life of the filter, in whatever units "Time_filter" is reported
 # in. Time_filter counts *up* from zero as the filter is used, so this is the
 # value it climbs towards, not a starting point it counts down from.
-_TIME_FILTER_MAX = 10200
+#
+# 10080 minutes is exactly seven days of filtering, and is where the counter
+# stops: a real spa read 10080 with Overtime_filter raised, then still 10080
+# fifteen minutes later with the pump running. The product definition's
+# uint_spec says max 10200, but that is the largest value the field can carry,
+# not the service life - taking it literally left the sensor reporting 1% on a
+# filter the spa had already declared expired, so it could never reach 0.
+_TIME_FILTER_MAX = 10080
+
+# The datapoints the manufacturer types as "alert" in the product definition
+# (product_key 747be354e00449e799883a966d0c9cbd, byte 8 bits 0-2), rather than
+# as status_writable or status_readonly like everything else. Their Chinese
+# descriptions in that definition are the authority on what each means:
+# Overtime_filter is 过滤超时, "filter timeout"; Superheat is 过热, "overheat";
+# Undercooling is 过冷, "overcool".
+#
+# Named explicitly, not pattern-matched. An earlier sensor searched for
+# system_err*, E##, earth and error - Bestway names this hardware has never
+# sent - so it could not turn on at all. Guessing at attribute meanings is
+# also how the Heater switch went wrong, so this list changes only when the
+# product definition says it should.
+ALERT_ATTRS = ("Overtime_filter", "Superheat", "Undercooling")
 
 
 def as_int(value: Any) -> int | None:
@@ -82,6 +103,24 @@ class WavespaDeviceStatus:
             return None
         percent = 100 - ((raw / _TIME_FILTER_MAX) * 100)
         return max(0, min(100, int(percent)))
+
+    def alerts(self) -> dict[str, bool]:
+        """Return each alert this spa reports, active or not.
+
+        Attributes the spa does not send are omitted rather than reported as
+        clear, so the result reflects what this model actually has.
+
+        Read through flag() for the same reason as everywhere else: bool("0")
+        is True, and a spa sending its flags as text would otherwise report a
+        fault that is not there.
+        """
+        return {
+            name: self.flag(name) is True for name in ALERT_ATTRS if name in self.attrs
+        }
+
+    def active_alerts(self) -> tuple[str, ...]:
+        """Return the names of the alerts that are currently raised."""
+        return tuple(name for name, active in self.alerts().items() if active)
 
     def flag(self, name: str) -> bool | None:
         """Return an on/off attribute as a bool, or None if absent or unusable.

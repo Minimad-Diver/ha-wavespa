@@ -54,6 +54,16 @@
       }
     },
     "sensor": {
+      "active_alert": {
+        "name": "Active alert",
+        "state": {
+          "none": "None",
+          "filter_expired": "Filter expired",
+          "overheating": "Water too hot",
+          "too_cold": "Water too cold",
+          "multiple": "Multiple alerts"
+        }
+      },
       "estimated_power": {
         "name": "Estimated power"
       },
